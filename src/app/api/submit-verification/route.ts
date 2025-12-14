@@ -4,72 +4,95 @@ import path from 'path';
 import axios from 'axios';
 
 // Helper to save base64 to disk
-const saveFile = async (base64Data: string | null, filename: string) => {
-  if (!base64Data) throw new Error(`Missing image data for ${filename}`);
+const saveFile = async (base64Data: string | null, userId: string, filename: string) => {
+  if (!base64Data) return null;
 
-  // Remove header data (data:image/jpeg;base64,...)
+  // Remove header
   const base64Image = base64Data.split(';base64,').pop();
+  if (!base64Image) return null;
+
+  // Define path: public/uploads/{user_id}/
+  const uploadDir = path.join(process.cwd(), 'public', 'uploads', userId);
   
-  // Define upload path (public/uploads)
-  const uploadDir = path.join(process.cwd(), 'public/uploads');
-  
-  // Ensure directory exists
+  // Create folder
   if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
+    await fs.promises.mkdir(uploadDir, { recursive: true });
   }
   
   const filePath = path.join(uploadDir, filename);
+  await fs.promises.writeFile(filePath, base64Image, { encoding: 'base64' });
   
-  // Write file
-  await fs.promises.writeFile(filePath, base64Image!, { encoding: 'base64' });
-  
-  // Return absolute path for Python backend
+  // Return absolute path
   return path.resolve(filePath);
 };
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { user_id, dob, gender, selfie_photo, passport_first, passport_old } = body;
+    
+    // 1. Destructure ALL fields explicitly
+    const { 
+      user_id, 
+      dob,       // Check this value
+      gender,    // Check this value
+      selfie_photo, 
+      passport_first, 
+      passport_old 
+    } = body;
 
-    // 1. Validation
-    if (!user_id || !selfie_photo || !passport_first || !passport_old) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    // Debug Log: Check what arrived from Frontend
+    console.log("------------------------------------------------");
+    console.log("Incoming Verification Request:");
+    console.log("User ID:", user_id);
+    console.log("DOB Input:", dob);
+    console.log("Gender Input:", gender);
+    console.log("------------------------------------------------");
+
+    if (!user_id) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    // 2. Save images to local disk
-    // Note: In Vercel production, this filesystem is ephemeral. 
-    // This approach works because you are running the backend locally alongside Next.js.
-    const selfiePath = await saveFile(selfie_photo, `${user_id}_selfie.jpg`);
-    const frontPath = await saveFile(passport_first, `${user_id}_front.jpg`);
-    const backPath = await saveFile(passport_old, `${user_id}_back.jpg`);
+    // 2. Save Images locally
+    const selfiePath = await saveFile(selfie_photo, user_id, 'selfie.jpg');
+    const frontPath = await saveFile(passport_first, user_id, 'aadharfront.jpg');
+    const backPath = await saveFile(passport_old, user_id, 'aadharback.jpg');
 
-    // 3. Construct Payload for Python Backend
+    if (!selfiePath || !frontPath || !backPath) {
+      return NextResponse.json({ error: 'Failed to save images' }, { status: 500 });
+    }
+
+    // 3. Construct Python Payload (Strict Mapping)
     const backendPayload = {
-      user_id: user_id,
-      dob: dob, // Expected: DD-MM-YYYY
-      gender: gender,
-      passport_first: frontPath, // Sending absolute local path
-      passport_old: backPath,    // Sending absolute local path
-      selfie_photo: selfiePath   // Sending absolute local path
+      user_id: String(user_id),       // Ensure string
+      dob: String(dob || ""),         // Ensure string (even if empty)
+      gender: String(gender || ""),   // Ensure string
+      passport_first: frontPath,
+      passport_old: backPath,
+      selfie_photo: selfiePath
     };
 
-    console.log("Forwarding to Python Backend:", backendPayload);
+    console.log("Sending Payload to Python:", JSON.stringify(backendPayload, null, 2));
 
-    // 4. Call Python API
-    const pythonResponse = await axios.post('http://localhost:8000/verification/verify', backendPayload);
+    // 4. Send to Python Backend
+    const pythonResponse = await axios.post(
+      'http://localhost:8101/verification/verify', 
+      backendPayload,
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 120000 // 2 minutes timeout for OCR/AI
+      }
+    );
 
-    // 5. Return result
+    console.log("Python Response Status:", pythonResponse.status);
+    
     return NextResponse.json(pythonResponse.data);
 
   } catch (error: any) {
-    console.error("Verification Bridge Error:", error.message);
-    
-    // Handle Axios errors from Python backend
+    console.error("API Route Error:", error.message);
     if (error.response) {
+      console.error("Python Backend Error:", error.response.data);
       return NextResponse.json(error.response.data, { status: error.response.status });
     }
-    
     return NextResponse.json(
       { error: 'Internal Server Error', details: error.message },
       { status: 500 }

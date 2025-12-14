@@ -1,4 +1,3 @@
-// src/components/VerificationStore.ts
 import { useState, useEffect } from 'react';
 import { saveToDB, getFromDB, clearDB } from '@/lib/db';
 
@@ -24,33 +23,23 @@ export const useVerificationStore = () => {
   const [data, setData] = useState<VerificationData>(INITIAL_STATE);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load from IndexedDB on mount
+  // Load from IndexedDB
   useEffect(() => {
-    let mounted = true;
-    const loadData = async () => {
-      try {
+    const load = async () => {
         const saved = await getFromDB('user_data');
-        if (saved && mounted) {
-          setData(saved);
-        }
-      } catch (err) {
-        console.error("Failed to load from DB", err);
-      } finally {
-        if (mounted) setIsLoaded(true);
-      }
+        if (saved) setData(saved);
+        setIsLoaded(true);
     };
-    loadData();
-    return () => { mounted = false; };
+    load();
   }, []);
 
-  // Save to IndexedDB whenever data changes
+  // Save to IndexedDB (Debounced)
   useEffect(() => {
     if (isLoaded) {
-      // Debounce saving to prevent freezing UI on every keystroke
-      const timeoutId = setTimeout(() => {
-        saveToDB('user_data', data).catch(console.error);
-      }, 500);
-      return () => clearTimeout(timeoutId);
+      const timer = setTimeout(() => {
+        saveToDB('user_data', data);
+      }, 500); 
+      return () => clearTimeout(timer);
     }
   }, [data, isLoaded]);
 
