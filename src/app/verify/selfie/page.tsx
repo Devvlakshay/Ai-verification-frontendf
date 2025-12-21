@@ -9,55 +9,42 @@ import { ArrowRight } from 'lucide-react';
 export default function SelfiePage() {
   const router = useRouter();
   const { data, updateField } = useVerificationStore();
-  
-  // Local state to control the "Continue" button
   const [hasImage, setHasImage] = useState(!!data.selfie_photo);
 
   const handleImageUpdate = (img: string) => {
-    // 1. Update the store (Data)
     updateField('selfie_photo', img);
-    
-    // 2. Update local state to show "Continue" button
-    if (img) setHasImage(true);
-    else setHasImage(false);
-
-    // Note: We REMOVED the automatic router.push here 
-    // so the user can see the image in the box first.
+    setHasImage(!!img);
   };
 
   const handleNext = () => {
-    if (hasImage) {
-      router.push('/verify/front');
-    }
+    if (hasImage) router.push('/verify/front');
   };
 
   return (
-    <div className="space-y-6 pb-20">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold">Take a Selfie</h2>
-        <p className="text-gray-500 text-sm">Ensure your face is clearly visible.</p>
+    <div className="space-y-6 pb-24 pt-4">
+      <div className="text-center space-y-2">
+        <h2 className="text-3xl font-bold text-white">Take a Selfie</h2>
+        <p className="text-white/50 text-sm">
+           Fit your face inside the oval.
+        </p>
       </div>
       
-      {/* 
-         The 'initialImage' prop is key! 
-         It passes the uploaded file back into the Camera box.
-      */}
       <CameraCapture 
         onCapture={handleImageUpdate} 
-        label="Selfie Preview" 
+        label="" 
         initialImage={data.selfie_photo}
+        isSelfie={true} 
       />
       
-      {/* Upload Button updates the same state */}
-      <FileUpload onUpload={handleImageUpdate} label="Or upload from Gallery" />
+      <FileUpload onUpload={handleImageUpdate} label="Upload from Gallery" />
 
-      {/* Only show Next button if image exists */}
+      {/* Floating Action Button */}
       {hasImage && (
-        <div className="fixed bottom-0 left-0 w-full p-4 bg-white border-t shadow-lg animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-6 left-0 w-full px-6 z-50">
           <div className="max-w-xl mx-auto">
             <button 
               onClick={handleNext}
-              className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors"
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 shadow-xl shadow-purple-900/40 hover:scale-[1.02] transition-transform"
             >
               Continue <ArrowRight />
             </button>

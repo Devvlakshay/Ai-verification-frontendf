@@ -1,6 +1,6 @@
 'use client';
 import { useState, ChangeEvent } from 'react';
-import { UploadCloud, Loader2 } from 'lucide-react';
+import { ImagePlus, Loader2 } from 'lucide-react';
 
 interface Props {
   onUpload: (base64: string) => void;
@@ -11,6 +11,8 @@ export default function FileUpload({ onUpload, label }: Props) {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    /* ... Keep existing logic ... */
+    // (Copy existing logic from previous response)
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -22,14 +24,11 @@ export default function FileUpload({ onUpload, label }: Props) {
     reader.onload = (event) => {
       const img = new Image();
       img.src = event.target?.result as string;
-
       img.onload = () => {
-        // Create canvas for resizing
-        const canvas = document.createElement('canvas');
+         const canvas = document.createElement('canvas');
+         // ... resizing logic ...
         let width = img.width;
         let height = img.height;
-
-        // Resize logic: Max dimension 1280px (HD)
         const MAX_SIZE = 1280;
         if (width > height) {
           if (width > MAX_SIZE) {
@@ -42,38 +41,28 @@ export default function FileUpload({ onUpload, label }: Props) {
             height = MAX_SIZE;
           }
         }
-
         canvas.width = width;
         canvas.height = height;
-
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-
-        // Convert to optimized Base64 (JPEG, 80% quality)
         const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
-
         onUpload(compressedBase64);
         setIsProcessing(false);
-      };
-
-      img.onerror = () => {
-        alert("Failed to load image. Please try another file.");
-        setIsProcessing(false);
-      };
-    };
+      }
+    }
   };
 
   return (
-    <div className="mt-4 text-center">
+    <div className="mt-6 text-center">
       <label 
-        className={`inline-flex items-center gap-2 text-sm text-blue-600 cursor-pointer hover:underline ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
+        className={`inline-flex items-center gap-2 text-sm text-purple-300 font-medium cursor-pointer hover:text-white transition-colors bg-white/5 px-4 py-2 rounded-full border border-white/10 hover:bg-white/10 ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
       >
         {isProcessing ? (
           <Loader2 className="animate-spin" size={16} />
         ) : (
-          <UploadCloud size={16} />
+          <ImagePlus size={16} />
         )}
-        {isProcessing ? "Processing..." : label}
+        {isProcessing ? "Optimizing..." : label}
         
         <input 
           type="file" 
