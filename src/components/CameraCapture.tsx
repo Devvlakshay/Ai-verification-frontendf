@@ -39,28 +39,46 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
       return;
     }
 
-    const loadModel = async () => {
+    let ignore = false;
+    let detector: FaceDetector;
+
+    async function loadModel() {
       try {
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
         );
-        const detector = await FaceDetector.createFromOptions(vision, {
+        detector = await FaceDetector.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`,
             delegate: "GPU"
           },
           runningMode: "VIDEO"
         });
-        detectorRef.current = detector;
-        setAlignmentStatus('SEARCHING');
+        
+        if (!ignore) {
+            detectorRef.current = detector;
+            setAlignmentStatus('SEARCHING');
+        } else {
+            detector.close();
+        }
       } catch (err) {
         console.error("MediaPipe Load Error:", err);
         // Fallback: allow capture if model fails
-        setAlignmentStatus('ALIGNED'); 
+        if (!ignore) {
+            setAlignmentStatus('ALIGNED'); 
+        }
       }
     };
 
     loadModel();
+
+    return () => {
+      ignore = true;
+      if (detectorRef.current) {
+        detectorRef.current.close();
+        detectorRef.current = null;
+      }
+    };
   }, [isSelfie]);
 
   // --- 2. Camera Lifecycle & Cleanup ---
@@ -74,76 +92,102 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
     return () => {
       stopCamera();
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      if (detectorRef.current) detectorRef.current.close();
+      // The FaceDetector is now cleaned up in its own effect
     };
   }, [initialImage]);
 
   useEffect(() => {
-    // Auto-start camera if no preview
-    if (!preview) startCamera();
-  }, [preview]);
+    if (preview) return;
+
+    let isCancelled = false;
+
+    const initCamera = async () => {
+      setError(null);
+      
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        setError("Camera API not supported. Please use HTTPS.");
+        return;
+      }
+
+      const video = videoRef.current;
+      if (!video) return;
+
+      try {
+        const constraints = { 
+          video: { 
+            facingMode: facingMode,
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
+        };
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (err) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } });
+        }
+
+        if (isCancelled) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        
+        video.onloadedmetadata = () => {
+          if (isCancelled) return;
+          video.play().catch(e => console.error("Play error:", e));
+          setIsStreaming(true);
+          if (isSelfie) {
+            predictWebcam();
+          }
+        };
+        
+        video.srcObject = stream;
+      } catch (err: any) {
+        if (!isCancelled) {
+          console.error("Camera Error:", err);
+          setError("Camera access denied. Please allow permissions.");
+          setIsStreaming(false);
+        }
+      }
+    };
+
+    initCamera();
+
+    return () => {
+      isCancelled = true;
+      stopCamera();
+    };
+  }, [preview, facingMode, isSelfie]);
 
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
-      setIsStreaming(false);
     }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsStreaming(false);
+
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
   };
 
-  const startCamera = async () => {
-    setError(null);
-    stopCamera();
-
-    try {
-      // Constraints: Prioritize HD resolution
-      const constraints = { 
-        video: { 
-          facingMode: facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        } 
-      };
-
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err) {
-        // Fallback for laptops/older devices
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      }
-
-      streamRef.current = stream;
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadeddata = () => {
-          videoRef.current?.play().catch(e => console.error("Play error:", e));
-          setIsStreaming(true);
-          
-          // Start Face Detection Loop
-          if (isSelfie) predictWebcam();
-        };
-      }
-    } catch (err: any) {
-      setError("Camera access denied. Please allow permissions.");
-      setIsStreaming(false);
-    }
-  };
-
   // --- 3. The Face Detection Loop ---
   const predictWebcam = () => {
     // Loop guard
-    if (!detectorRef.current || !videoRef.current) return;
+    if (!detectorRef.current || !videoRef.current || !streamRef.current) return;
     
     const video = videoRef.current;
     
     // Only detect if video has new data
-    if (video.currentTime !== lastVideoTimeRef.current) {
+    if (video.currentTime !== lastVideoTimeRef.current && video.readyState >= 2) {
       lastVideoTimeRef.current = video.currentTime;
       const startTimeMs = performance.now();
       
@@ -156,9 +200,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
     }
 
     // Keep loop running
-    if (streamRef.current) { 
-      animationFrameRef.current = requestAnimationFrame(predictWebcam);
-    }
+    animationFrameRef.current = requestAnimationFrame(predictWebcam);
   };
 
   // --- 4. Face Alignment Logic (The Core Request) ---
@@ -252,7 +294,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
   const retake = () => {
     setPreview(null);
     onCapture('');
-    startCamera();
+    // startCamera is called by useEffect
   };
 
   // --- UI Helpers ---
@@ -265,7 +307,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
     const base = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[220px] h-[300px] rounded-[50%] border-[4px] transition-all duration-300 z-10 box-border";
     
     if (isAligned) {
-      return cn(base, "border-green-500 shadow-[0_0_40px_rgba(34,197,94,0.6)]");
+      return cn(base, "border-lavender shadow-[0_0_40px_rgba(168,125,242,0.6)]");
     }
     return cn(base, "border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)]");
   };
@@ -284,12 +326,12 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
   };
 
   return (
-    <div className="flex flex-col items-center w-full max-w-md mx-auto p-4 border rounded-xl bg-gray-50 shadow-sm relative">
-      <h3 className="text-lg font-semibold mb-3 text-gray-700">{label}</h3>
+    <div className="flex flex-col items-center w-full max-w-md mx-auto p-4 border border-royal-purple/50 rounded-xl bg-royal-purple/30 shadow-sm relative">
+      <h3 className="text-lg font-semibold mb-3 text-white">{label}</h3>
       
-      {error && <div className="text-red-500 text-sm mb-2">{error}</div>}
+      {error && <div className="text-red-400 text-sm mb-2">{error}</div>}
 
-      <div className="relative w-full aspect-[3/4] sm:aspect-[4/3] bg-black rounded-2xl overflow-hidden mb-4 shadow-inner ring-1 ring-gray-200 isolate">
+      <div className="relative w-full aspect-[3/4] sm:aspect-[4/3] bg-black rounded-2xl overflow-hidden mb-4 shadow-inner ring-1 ring-royal-purple isolate">
         
         {/* Preview Image (Static) */}
         {preview ? (
@@ -318,7 +360,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
                <div className={cn(
                  "px-4 py-1.5 rounded-full font-bold text-xs uppercase tracking-wide backdrop-blur-md shadow-lg transition-colors duration-300 flex items-center gap-2",
-                 isAligned ? "bg-green-500 text-white" : "bg-red-500/90 text-white"
+                 isAligned ? "bg-lavender/90 text-deep-violet" : "bg-red-500/90 text-white"
                )}>
                  {isAligned ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
                  {getStatusText()}
@@ -329,7 +371,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
         
         {/* Loading Spinner for Camera Init */}
         {!isStreaming && !preview && !error && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-gray-900/50 z-30">
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70 bg-deep-violet/50 z-30">
                 <Camera size={48} className="animate-pulse" />
                 <p className="mt-2 text-sm">Initializing...</p>
             </div>
@@ -340,7 +382,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
         {preview ? (
           <button 
             onClick={retake}
-            className="flex items-center gap-2 px-6 py-2 bg-white border border-gray-300 text-gray-800 rounded-full hover:bg-gray-100"
+            className="flex items-center gap-2 px-6 py-2 bg-white/10 border border-lavender/30 text-white rounded-full hover:bg-white/20"
           >
             <RefreshCw size={18} /> Retake
           </button>
@@ -350,9 +392,8 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
              <button 
               onClick={() => {
                 setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
-                setTimeout(startCamera, 100);
               }}
-              className="p-3 bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300"
+              className="p-3 bg-royal-purple/50 text-white rounded-full hover:bg-royal-purple"
               title="Switch Camera"
             >
               <RefreshCw size={20} />
@@ -364,10 +405,10 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
               // UX: Disable if not aligned (Optional - remove disabled prop if too strict)
               disabled={isSelfie && !isAligned} 
               className={cn(
-                  "px-8 py-2 text-white rounded-full font-bold shadow-lg transition-all transform active:scale-95",
+                  "px-8 py-2 text-deep-violet rounded-full font-bold shadow-lg transition-all transform active:scale-95",
                   (isSelfie && !isAligned) 
                     ? "bg-gray-400 cursor-not-allowed opacity-70" 
-                    : "bg-blue-600 hover:bg-blue-700 hover:shadow-blue-500/30"
+                    : "bg-lavender hover:bg-opacity-80 hover:shadow-lavender/30"
               )}
             >
               Capture

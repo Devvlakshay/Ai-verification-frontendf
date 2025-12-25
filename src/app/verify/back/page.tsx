@@ -23,8 +23,8 @@ export default function BackPage() {
   return (
     <div className="space-y-6 pb-20">
       <div className="text-center">
-        <h2 className="text-2xl font-bold">Aadhaar Back</h2>
-        <p className="text-gray-500 text-sm">Upload/Capture the back side with address.</p>
+        <h2 className="text-2xl font-bold text-white">Aadhaar Back</h2>
+        <p className="text-white/70 text-sm">Upload/Capture the back side with address.</p>
       </div>
       
       <CameraCapture 
@@ -36,9 +36,12 @@ export default function BackPage() {
       <FileUpload onUpload={handleImageUpdate} label="Or upload Back Image" />
 
       {hasImage && (
-        <div className="fixed bottom-0 left-0 w-full p-4 bg-white border-t shadow-lg animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-6 left-0 w-full px-6 z-50">
           <div className="max-w-xl mx-auto">
-             <button onClick={handleNext} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold text-lg flex items-center justify-center gap-2">
+             <button 
+              onClick={handleNext} 
+              className="w-full bg-lavender text-deep-violet py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 shadow-xl shadow-lavender/40 hover:scale-[1.02] transition-transform"
+            >
               Submit for Verification <ArrowRight />
             </button>
           </div>

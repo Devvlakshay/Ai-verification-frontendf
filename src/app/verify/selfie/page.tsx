@@ -24,7 +24,7 @@ export default function SelfiePage() {
     <div className="space-y-6 pb-24 pt-4">
       <div className="text-center space-y-2">
         <h2 className="text-3xl font-bold text-white">Take a Selfie</h2>
-        <p className="text-white/50 text-sm">
+        <p className="text-white/70 text-sm">
            Fit your face inside the oval.
         </p>
       </div>
@@ -44,7 +44,7 @@ export default function SelfiePage() {
           <div className="max-w-xl mx-auto">
             <button 
               onClick={handleNext}
-              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 shadow-xl shadow-purple-900/40 hover:scale-[1.02] transition-transform"
+              className="w-full bg-lavender text-deep-violet py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 shadow-xl shadow-lavender/40 hover:scale-[1.02] transition-transform"
             >
               Continue <ArrowRight />
             </button>
