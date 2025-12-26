@@ -10,12 +10,13 @@ interface Props {
   label: string;
   initialImage: string | null;
   isSelfie?: boolean; // If true, enables Face Alignment logic
+  retakeActions?: React.ReactNode;
 }
 
 // Visual states for the overlay
 type AlignmentStatus = 'LOADING' | 'SEARCHING' | 'TOO_MANY' | 'TOO_FAR' | 'NOT_CENTERED' | 'BAD_ANGLE' | 'ALIGNED';
 
-export default function CameraCapture({ onCapture, label, initialImage, isSelfie = false }: Props) {
+export default function CameraCapture({ onCapture, label, initialImage, isSelfie = false, retakeActions }: Props) {
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -301,7 +302,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
   const isAligned = alignmentStatus === 'ALIGNED';
   
   // Dynamic styles for the oval
-  const getOverlayStyles = () => {
+  const getSelfieOverlayStyles = () => {
     if (!isSelfie) return 'hidden';
     
     const base = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[220px] h-[300px] rounded-[50%] border-[4px] transition-all duration-300 z-10 box-border";
@@ -312,7 +313,13 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
     return cn(base, "border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)]");
   };
 
+  const getCardOverlayStyles = () => {
+    if (isSelfie) return 'hidden';
+    return "absolute inset-0 w-full h-full flex items-center justify-center z-10 p-4";
+  };
+
   const getStatusText = () => {
+    if (!isSelfie) return "Ready to Capture";
     switch (alignmentStatus) {
       case 'LOADING': return "Loading AI...";
       case 'SEARCHING': return "Find face...";
@@ -331,7 +338,10 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
       
       {error && <div className="text-red-400 text-sm mb-2">{error}</div>}
 
-      <div className="relative w-full aspect-[3/4] sm:aspect-[4/3] bg-black rounded-2xl overflow-hidden mb-4 shadow-inner ring-1 ring-royal-purple isolate">
+      <div className={cn(
+        "relative w-full bg-black rounded-2xl overflow-hidden mb-4 shadow-inner ring-1 ring-royal-purple isolate",
+        isSelfie ? 'aspect-[3/4]' : 'aspect-[8/5]'
+      )}>
         
         {/* Preview Image (Static) */}
         {preview ? (
@@ -351,10 +361,15 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
         )}
 
         {/* --- OVERLAY LAYER --- */}
-        {isStreaming && isSelfie && !preview && (
+        {isStreaming && !preview && (
           <>
-            {/* The Oval */}
-            <div className={getOverlayStyles()} />
+            {/* Selfie Oval */}
+            <div className={getSelfieOverlayStyles()} />
+
+            {/* Card Rectangle */}
+            <div className={getCardOverlayStyles()}>
+              <div className="w-full h-full border-4 border-dashed border-white/50 rounded-2xl" />
+            </div>
             
             {/* Status Badge */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
@@ -378,14 +393,17 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
         )}
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col items-center gap-2">
         {preview ? (
-          <button 
-            onClick={retake}
-            className="flex items-center gap-2 px-6 py-2 bg-white/10 border border-lavender/30 text-white rounded-full hover:bg-white/20"
-          >
-            <RefreshCw size={18} /> Retake
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            <button 
+              onClick={retake}
+              className="flex items-center gap-2 px-6 py-2 bg-white/10 border border-lavender/30 text-white rounded-full hover:bg-white/20"
+            >
+              <RefreshCw size={18} /> Retake
+            </button>
+            {retakeActions}
+          </div>
         ) : (
           <div className="flex gap-4">
              {/* Switch Camera Button */}

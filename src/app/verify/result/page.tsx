@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 
 export default function ResultPage() {
   const router = useRouter();
-  const { data, resetStore, isLoaded } = useVerificationStore();
+  const { data, clearImages, isLoaded } = useVerificationStore();
   
   const [status, setStatus] = useState<'IDLE' | 'LOADING' | 'SUCCESS' | 'ERROR'>('IDLE');
   const [result, setResult] = useState<any>(null);
@@ -21,8 +21,8 @@ export default function ResultPage() {
 
     // 2. Check if we have data to submit
     if (!data.selfie_photo || !data.passport_first) {
-      // No data found? Redirect to start
-      router.replace('/verify/details');
+      // No data found? Redirect to start of capture flow
+      router.replace('/verify/selfie');
       return;
     }
 
@@ -31,7 +31,7 @@ export default function ResultPage() {
       hasSubmitted.current = true;
       submitVerification();
     }
-  }, [isLoaded, data]);
+  }, [isLoaded, data, router]);
 
   const submitVerification = async () => {
     setStatus('LOADING');
@@ -48,8 +48,6 @@ export default function ResultPage() {
       if (response.ok) {
         setResult(json);
         setStatus('SUCCESS');
-        // Optional: Clear store after success so user can't re-submit same data immediately
-        // resetStore(); 
       } else {
         console.error("API Error:", json);
         setResult(json); // Store error details if available
@@ -62,8 +60,8 @@ export default function ResultPage() {
   };
 
   const handleRetry = () => {
-    resetStore();
-    router.push('/verify/details');
+    clearImages();
+    router.push('/verify/selfie');
   };
 
   // --- 1. LOADING UI ---
@@ -101,7 +99,7 @@ export default function ResultPage() {
           {result?.error || result?.details || "We couldn't connect to the verification server."}
         </p>
         <button 
-          onClick={() => window.location.reload()}
+          onClick={handleRetry}
           className="px-6 py-2 bg-lavender text-deep-violet rounded-lg hover:bg-opacity-80 transition-colors"
         >
           Try Again

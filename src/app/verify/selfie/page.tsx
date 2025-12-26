@@ -21,22 +21,33 @@ export default function SelfiePage() {
   };
 
   return (
-    <div className="space-y-6 pb-24 pt-4">
-      <div className="text-center space-y-2">
+    <div className="flex flex-col h-full pt-4">
+      <div className="text-center px-4">
         <h2 className="text-3xl font-bold text-white">Take a Selfie</h2>
         <p className="text-white/70 text-sm">
            Fit your face inside the oval.
         </p>
       </div>
       
-      <CameraCapture 
-        onCapture={handleImageUpdate} 
-        label="" 
-        initialImage={data.selfie_photo}
-        isSelfie={true} 
-      />
+      <div className="flex-grow flex items-center justify-center my-4">
+        <CameraCapture 
+          onCapture={handleImageUpdate} 
+          label="" 
+          initialImage={data.selfie_photo}
+          isSelfie={true}
+          retakeActions={
+            <div className="mt-2">
+              <FileUpload onUpload={handleImageUpdate} label="Or Upload from Gallery" />
+            </div>
+          }
+        />
+      </div>
       
-      <FileUpload onUpload={handleImageUpdate} label="Upload from Gallery" />
+      {!hasImage && (
+        <div className="px-4 pb-4">
+          <FileUpload onUpload={handleImageUpdate} label="Upload from Gallery" />
+        </div>
+      )}
 
       {/* Floating Action Button */}
       {hasImage && (

@@ -54,5 +54,14 @@ export const useVerificationStore = () => {
     await clearDB();
   };
 
-  return { data, updateField, resetStore, isLoaded };
+  const clearImages = () => {
+    setData((prev) => ({
+      ...prev,
+      selfie_photo: null,
+      passport_first: null,
+      passport_old: null,
+    }));
+  };
+
+  return { data, updateField, resetStore, clearImages, isLoaded };
 };
