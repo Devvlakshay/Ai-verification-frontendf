@@ -3,6 +3,7 @@ import { saveToDB, getFromDB, clearDB } from '@/lib/db';
 
 export type VerificationData = {
   user_id: string;
+  name: string;
   dob: string;
   gender: 'Male' | 'Female' | 'Other';
   selfie_photo: string | null;
@@ -12,6 +13,7 @@ export type VerificationData = {
 
 const INITIAL_STATE: VerificationData = {
   user_id: '',
+  name: '',
   dob: '',
   gender: 'Male',
   selfie_photo: null,
