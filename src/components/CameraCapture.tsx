@@ -32,7 +32,8 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
   
   // Face Alignment State
   const [alignmentStatus, setAlignmentStatus] = useState<AlignmentStatus>('LOADING');
-
+  const [countdown, setCountdown] = useState<number>(5);
+ 
   // --- 1. Load MediaPipe Model (Only if isSelfie is true) ---
   useEffect(() => {
     if (!isSelfie) {
@@ -51,7 +52,8 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
         detector = await FaceDetector.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`,
-            delegate: "GPU"
+            delegate: "GPU",
+            
           },
           runningMode: "VIDEO"
         });
@@ -222,11 +224,11 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
     // Only available if boundingBox is valid
     if (!box) return;
 
-    // Rule 1: Size (Area > 12% of frame)
+    // Rule 1: Size (Area > 6% of frame)
     // Avoids faces that are too far away
     const faceArea = (box.width * box.height);
     const frameArea = (vWidth * vHeight);
-    if ((faceArea / frameArea) < 0.12) {
+    if ((faceArea / frameArea) < 0.06) {
       setAlignmentStatus('TOO_FAR');
       return;
     }
@@ -292,6 +294,30 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
     onCapture(base64);
   }, [onCapture, isStreaming, facingMode]);
 
+  // --- Auto Capture Countdown ---
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+
+    if (alignmentStatus === 'ALIGNED' && isSelfie && isStreaming) {
+      timer = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            captureImage();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setCountdown(5);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [alignmentStatus, isSelfie, isStreaming, captureImage]);
+
   const retake = () => {
     setPreview(null);
     onCapture('');
@@ -327,7 +353,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
       case 'TOO_FAR': return "Come closer";
       case 'NOT_CENTERED': return "Center your face";
       case 'BAD_ANGLE': return "Look straight";
-      case 'ALIGNED': return "Perfect";
+      case 'ALIGNED': return `Holding... ${countdown}`;
       default: return "";
     }
   };
@@ -370,6 +396,13 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
             <div className={getCardOverlayStyles()}>
               <div className="w-full h-full border-4 border-dashed border-white/50 rounded-2xl" />
             </div>
+            
+            {/* Countdown Overlay */}
+            {isAligned && countdown > 0 && (
+              <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+                <span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
+              </div>
+            )}
             
             {/* Status Badge */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
