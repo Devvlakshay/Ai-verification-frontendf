@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import CameraCapture from '@/components/CameraCapture';
 import FileUpload from '@/components/FileUpload';
 import { useVerificationStore } from '@/components/VerificationStore';
@@ -8,8 +8,23 @@ import { ArrowRight } from 'lucide-react';
 
 export default function FrontPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data, updateField } = useVerificationStore();
   const [hasImage, setHasImage] = useState(!!data.passport_first);
+
+  useEffect(() => {
+    const userId = searchParams.get('user_id');
+    const token = searchParams.get('token') || searchParams.get('jwt');
+    const name = searchParams.get('name');
+    const dob = searchParams.get('dob');
+    const gender = searchParams.get('gender');
+
+    if (userId) updateField('user_id', userId);
+    if (token) updateField('token', token);
+    if (name) updateField('name', name);
+    if (dob) updateField('dob', dob);
+    if (gender) updateField('gender', gender);
+  }, [searchParams, updateField]);
 
   const handleImageUpdate = (img: string) => {
     updateField('passport_first', img);

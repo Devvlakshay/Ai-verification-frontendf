@@ -35,12 +35,33 @@ export default function ResultPage() {
 
   const submitVerification = async () => {
     setStatus('LOADING');
+
+    // 1. RETRIEVE DATA FROM STORAGE
+    const storedData = sessionStorage.getItem("verification_user");
+    
+    if (!storedData) {
+      console.error("User data lost! Please restart.");
+      setResult({ error: "Session expired. Please open the app again." });
+      setStatus('ERROR');
+      return;
+    }
+
+    const userData = JSON.parse(storedData);
+
+    // 2. CREATE THE PAYLOAD
+    const payload = {
+      ...data, // Contains images
+      user_id: userData.user_id,
+      name: userData.name,
+      dob: userData.dob,
+      gender: userData.gender,
+    };
     
     try {
       const response = await fetch('/api/submit-verification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
 
       const json = await response.json();
@@ -109,7 +130,7 @@ export default function ResultPage() {
   }
 
   // --- 3. RESULT UI (Approved / Rejected / Review) ---
-  const decision = result?.status || 'REJECTED'; 
+  const decision = result?.final_decision || 'REJECTED'; 
   const isApproved = decision === 'APPROVED';
   const isReview = decision === 'REVIEW';
   const isRejected = decision === 'REJECTED';

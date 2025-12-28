@@ -75,7 +75,7 @@ export async function POST(req: Request) {
 
     // 4. Send to Python Backend
     const pythonResponse = await axios.post(
-      'http://localhost:8101/verification/verify', 
+      'http://51.255.153.51:8101/verification/verify', 
       backendPayload,
       {
         headers: { 'Content-Type': 'application/json' },

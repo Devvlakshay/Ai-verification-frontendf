@@ -21,15 +21,8 @@ export default function SelfiePage() {
   };
 
   return (
-    <div className="flex flex-col h-full pt-4">
-      <div className="text-center px-4">
-        <h2 className="text-3xl font-bold text-white">Take a Selfie</h2>
-        <p className="text-white/70 text-sm">
-           Fit your face inside the oval.
-        </p>
-      </div>
-      
-      <div className="flex-grow flex items-center justify-center my-4">
+    <div className="flex flex-col h-full">
+      <div className="flex-grow flex items-center justify-center">
         <CameraCapture 
           onCapture={handleImageUpdate} 
           label="" 

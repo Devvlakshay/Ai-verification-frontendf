@@ -40,6 +40,9 @@ export default function Home() {
         updateField('name', decoded.name);
         updateField('dob', decoded.dob);
         updateField('gender', decoded.gender);
+
+        // 1. SAVE TO SESSION STORAGE
+        sessionStorage.setItem("verification_user", JSON.stringify(decoded));
         
         router.push('/verify/selfie');
       } else {

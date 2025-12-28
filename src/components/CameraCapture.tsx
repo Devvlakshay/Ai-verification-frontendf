@@ -291,32 +291,35 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
     
     stopCamera();
     setPreview(base64);
-    onCapture(base64);
+    setTimeout(() => onCapture(base64), 0);
   }, [onCapture, isStreaming, facingMode]);
 
   // --- Auto Capture Countdown ---
   useEffect(() => {
     let timer: NodeJS.Timeout;
-
+    // Only start a timer if we are aligned and streaming
     if (alignmentStatus === 'ALIGNED' && isSelfie && isStreaming) {
       timer = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            captureImage();
-            return 0;
-          }
-          return prev - 1;
-        });
+        // Just decrement the counter.
+        setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
       }, 1000);
     } else {
+      // If not aligned, reset the counter.
       setCountdown(5);
     }
-
+    // Cleanup clears the timer.
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [alignmentStatus, isSelfie, isStreaming, captureImage]);
+  }, [alignmentStatus, isSelfie, isStreaming]);
+
+  // A separate effect to watch the countdown value.
+  useEffect(() => {
+    // When countdown hits zero, and we are still streaming, capture.
+    if (countdown <= 0 && isSelfie && isStreaming) {
+      captureImage();
+    }
+  }, [countdown, isSelfie, isStreaming, captureImage]);
 
   const retake = () => {
     setPreview(null);
@@ -359,19 +362,19 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
   };
 
   return (
-    <div className="flex flex-col items-center w-full max-w-md mx-auto p-4 border border-royal-purple/50 rounded-xl bg-royal-purple/30 shadow-sm relative">
+    <div className="flex flex-col items-center w-full h-full mx-auto border-none rounded-none bg-transparent shadow-none relative">
       <h3 className="text-lg font-semibold mb-3 text-white">{label}</h3>
       
       {error && <div className="text-red-400 text-sm mb-2">{error}</div>}
 
       <div className={cn(
-        "relative w-full bg-black rounded-2xl overflow-hidden mb-4 shadow-inner ring-1 ring-royal-purple isolate",
+        "relative w-full rounded-2xl overflow-hidden mb-4 shadow-inner ring-1 ring-royal-purple isolate",
         isSelfie ? 'aspect-[3/4]' : 'aspect-[8/5]'
       )}>
         
         {/* Preview Image (Static) */}
         {preview ? (
-          <Image src={preview} alt="Preview" fill className="object-cover z-0" unoptimized />
+          <Image src={preview} alt="Preview" fill className="object-cover" unoptimized />
         ) : (
           /* Live Video */
           <video 
@@ -380,7 +383,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
             playsInline 
             muted 
             className={cn(
-              "w-full h-full object-cover z-0 transition-transform", 
+              "w-full h-full object-cover transition-transform", 
               facingMode === 'user' && "scale-x-[-1]"
             )}
           />
@@ -398,12 +401,12 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
             </div>
             
             {/* Countdown Overlay */}
-            {isAligned && countdown > 0 && (
+            {isSelfie && isAligned && countdown > 0 && (
               <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
                 <span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
               </div>
             )}
-            
+
             {/* Status Badge */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
                <div className={cn(
