@@ -22,8 +22,8 @@ const saveFile = async (base64Data: string | null, userId: string, filename: str
   const filePath = path.join(uploadDir, filename);
   await fs.promises.writeFile(filePath, base64Image, { encoding: 'base64' });
   
-  // Return absolute path
-  return path.resolve(filePath);
+  // Return public URL path
+  return `/uploads/${userId}/${filename}`;
 };
 
 export async function POST(req: Request) {
@@ -57,25 +57,30 @@ export async function POST(req: Request) {
     const frontPath = await saveFile(passport_first, user_id, 'aadharfront.jpg');
     const backPath = await saveFile(passport_old, user_id, 'aadharback.jpg');
 
-    if (!selfiePath || !frontPath || !backPath) {
-      return NextResponse.json({ error: 'Failed to save images' }, { status: 500 });
+    if (!frontPath || !backPath) {
+      return NextResponse.json({ error: 'Failed to save one or more images' }, { status: 500 });
     }
+
+    // Construct full URLs for the backend
+    const host = req.headers.get('host') || 'localhost:3000';
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    
+    const frontUrl = `${protocol}://${host}${frontPath}`;
+    const backUrl = `${protocol}://${host}${backPath}`;
+    // const selfieUrl = selfiePath ? `${protocol}://${host}${selfiePath}` : null;
 
     // 3. Construct Python Payload (Strict Mapping)
     const backendPayload = {
       user_id: String(user_id),       // Ensure string
-      dob: String(dob || ""),         // Ensure string (even if empty)
-      gender: String(gender || ""),   // Ensure string
-      passport_first: frontPath,
-      passport_old: backPath,
-      selfie_photo: selfiePath
+      passport_first: frontUrl,
+      passport_old: backUrl,
     };
 
     console.log("Sending Payload to Python:", JSON.stringify(backendPayload, null, 2));
 
     // 4. Send to Python Backend
     const pythonResponse = await axios.post(
-      'http://0.0.0.0:8101/verification/verify', 
+      'http://0.0.0.0:8109/detect', 
       backendPayload,
       {
         headers: { 'Content-Type': 'application/json' },
@@ -85,7 +90,27 @@ export async function POST(req: Request) {
 
     console.log("Python Response Status:", pythonResponse.status);
     
-    return NextResponse.json(pythonResponse.data);
+    // --- NEW LOGIC: Interpret the backend response ---
+    const backendData = pythonResponse.data;
+
+    let final_decision = 'REJECTED';
+    // Use the message from the backend, or a default
+    let reason = backendData.message || 'Verification failed.';
+
+    // Check for the specific success condition from the Python service
+    if (backendData.success && backendData.data?.both_detected) {
+      final_decision = 'APPROVED';
+    }
+
+    // Construct a new response object for the frontend
+    const frontendResponse = {
+      final_decision: final_decision,
+      reason: reason,
+      // Forward the original backend data under a 'details' key for transparency
+      details: backendData 
+    };
+
+    return NextResponse.json(frontendResponse);
 
   } catch (error: any) {
     console.error("API Route Error:", error.message);
