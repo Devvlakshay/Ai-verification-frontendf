@@ -334,7 +334,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
   const getSelfieOverlayStyles = () => {
     if (!isSelfie) return 'hidden';
     
-    const base = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[220px] h-[300px] rounded-[50%] border-[4px] transition-all duration-300 z-10 box-border";
+    const base = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80%] h-[80%] rounded-[50%] border-[4px] transition-all duration-300 z-10 box-border";
     
     if (isAligned) {
       return cn(base, "border-lavender shadow-[0_0_40px_rgba(168,125,242,0.6)]");
