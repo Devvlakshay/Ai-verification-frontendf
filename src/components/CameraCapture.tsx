@@ -32,7 +32,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
   
   // Face Alignment State
   const [alignmentStatus, setAlignmentStatus] = useState<AlignmentStatus>('LOADING');
-  const [countdown, setCountdown] = useState<number>(5);
+  const [countdown, setCountdown] = useState<number>(3);
  
   // --- 1. Load MediaPipe Model (Only if isSelfie is true) ---
   useEffect(() => {
@@ -305,7 +305,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
       }, 1000);
     } else {
       // If not aligned, reset the counter.
-      setCountdown(5);
+      setCountdown(3);
     }
     // Cleanup clears the timer.
     return () => {
@@ -442,31 +442,28 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
           </div>
         ) : (
           <div className="flex gap-4">
-             {/* Switch Camera Button */}
-             <button 
-              onClick={() => {
-                setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
-              }}
-              className="p-3 bg-royal-purple/50 text-white rounded-full hover:bg-royal-purple"
-              title="Switch Camera"
-            >
-              <RefreshCw size={20} />
-            </button>
+             {/* Switch Camera Button - Only show for non-selfie */}
+             {!isSelfie && (
+               <button 
+                onClick={() => {
+                  setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+                }}
+                className="p-3 bg-royal-purple/50 text-white rounded-full hover:bg-royal-purple"
+                title="Switch Camera"
+              >
+                <RefreshCw size={20} />
+              </button>
+             )}
 
-            {/* Capture Button */}
-            <button 
-              onClick={captureImage}
-              // UX: Disable if not aligned (Optional - remove disabled prop if too strict)
-              disabled={isSelfie && !isAligned} 
-              className={cn(
-                  "px-8 py-2 text-deep-violet rounded-full font-bold shadow-lg transition-all transform active:scale-95",
-                  (isSelfie && !isAligned) 
-                    ? "bg-gray-400 cursor-not-allowed opacity-70" 
-                    : "bg-lavender hover:bg-opacity-80 hover:shadow-lavender/30"
-              )}
-            >
-              Capture
-            </button>
+            {/* Capture Button - Only show for non-selfie */}
+            {!isSelfie && (
+              <button 
+                onClick={captureImage}
+                className="px-8 py-2 bg-lavender text-deep-violet rounded-full font-bold shadow-lg transition-all transform active:scale-95 hover:bg-opacity-80 hover:shadow-lavender/30"
+              >
+                Capture
+              </button>
+            )}
           </div>
         )}
       </div>

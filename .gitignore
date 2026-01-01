@@ -81,6 +81,17 @@ dist/
 .coverage
 htmlcov/
 
+# JWT and sensitive data
+backend/.env
+.env
+.env.*
+data/
+public/uploads/
+
+# JWT logs and generated tokens
+JWT_STRUCTURE.md
+generate-jwt.js
+
 
 # =========================
 # IDE / OS

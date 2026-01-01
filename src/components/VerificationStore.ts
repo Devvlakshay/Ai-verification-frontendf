@@ -40,7 +40,12 @@ export const useVerificationStore = () => {
     if (isLoaded) {
       const timer = setTimeout(() => {
         saveToDB('user_data', data);
-      }, 500); 
+        console.log('💾 Saved to IndexedDB:', { 
+          selfie: !!data.selfie_photo, 
+          front: !!data.passport_first, 
+          back: !!data.passport_old 
+        });
+      }, 100); // Reduced from 500ms to 100ms for faster save
       return () => clearTimeout(timer);
     }
   }, [data, isLoaded]);

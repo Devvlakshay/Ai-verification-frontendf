@@ -13,6 +13,16 @@ export default function ResultPage() {
     router.push('/verify/front'); // Or wherever the flow starts
   };
 
+  // Send response to app dev window (if running in app)
+  if (typeof window !== 'undefined' && window.parent !== window) {
+    const { user_id } = JSON.parse(sessionStorage.getItem('verification_user') || '{}');
+    window.parent.postMessage({
+      user_id: user_id || null,
+      success: true,
+      message: 'Submission received. Verification in progress.'
+    }, '*');
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10 flex flex-col items-center justify-center text-center min-h-[70vh]">
       
@@ -34,14 +44,6 @@ export default function ResultPage() {
             Kindly wait while we review and approve your verification.
           </p>
       </div>
-
-      {/* Action Button */}
-      <button 
-        onClick={handleRestart}
-        className="w-full max-w-sm py-4 bg-lavender hover:bg-opacity-80 text-deep-violet rounded-xl font-semibold flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-xl active:scale-95 mt-4"
-      >
-        Verify Another User
-      </button>
 
     </div>
   );

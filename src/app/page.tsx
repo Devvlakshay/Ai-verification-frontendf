@@ -35,18 +35,39 @@ export default function Home() {
 
     if (token) {
       const decoded = decodeJwt(token);
-      if (decoded && decoded.user_id && decoded.name && decoded.dob && decoded.gender) {
+      
+      // Verify password field
+      if (!decoded || decoded.password !== '123569') {
+        setError('Invalid token or password. Access denied.');
+        return;
+      }
+      
+      // Check required fields
+      if (decoded.user_id && decoded.name && decoded.dob && decoded.gender) {
         updateField('user_id', decoded.user_id);
         updateField('name', decoded.name);
         updateField('dob', decoded.dob);
         updateField('gender', decoded.gender);
 
-        // 1. SAVE TO SESSION STORAGE
+        // Save to session storage
         sessionStorage.setItem("verification_user", JSON.stringify(decoded));
+        
+        // Save to JSON file via API
+        fetch('/api/save-jwt-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: decoded.user_id,
+            name: decoded.name,
+            dob: decoded.dob,
+            gender: decoded.gender,
+            timestamp: new Date().toISOString()
+          })
+        }).catch(err => console.error('Failed to save JWT data:', err));
         
         router.push('/verify/selfie');
       } else {
-        setError('Invalid token. Please try again.');
+        setError('Invalid token. Missing required fields.');
       }
     } else {
       setError('Please open this link from the App');

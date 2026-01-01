@@ -1,8 +1,7 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import CameraCapture from '@/components/CameraCapture';
-import FileUpload from '@/components/FileUpload';
 import { useVerificationStore } from '@/components/VerificationStore';
 import { ArrowRight } from 'lucide-react';
 
@@ -11,13 +10,33 @@ export default function SelfiePage() {
   const { data, updateField } = useVerificationStore();
   const [hasImage, setHasImage] = useState(!!data.selfie_photo);
 
+  // Update hasImage when data.selfie_photo changes
+  useEffect(() => {
+    setHasImage(!!data.selfie_photo);
+  }, [data.selfie_photo]);
+
   const handleImageUpdate = (img: string) => {
+    console.log('Front image updated:', img ? 'Image captured' : 'Image cleared');
     updateField('selfie_photo', img);
     setHasImage(!!img);
+    
+    // Save selfie to uploads directory
+    if (img && data.user_id) {
+      fetch('/api/save-selfie', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: data.user_id,
+          image: img
+        })
+      }).catch(err => console.error('Failed to save selfie:', err));
+    }
   };
 
   const handleNext = () => {
-    if (hasImage) router.push('/verify/front');
+    if (hasImage && data.selfie_photo) {
+      router.push('/verify/front');
+    }
   };
 
   return (
@@ -28,19 +47,8 @@ export default function SelfiePage() {
           label="" 
           initialImage={data.selfie_photo}
           isSelfie={true}
-          retakeActions={
-            <div className="mt-2">
-              <FileUpload onUpload={handleImageUpdate} label="Or Upload from Gallery" />
-            </div>
-          }
         />
       </div>
-      
-      {!hasImage && (
-        <div className="px-4 pb-4">
-          <FileUpload onUpload={handleImageUpdate} label="Upload from Gallery" />
-        </div>
-      )}
 
       {/* Floating Action Button */}
       {hasImage && (
