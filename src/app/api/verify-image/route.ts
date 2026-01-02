@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import { getSecureHeaders } from '@/lib/jwt';
 
 // This helper saves the file where it can be publicly accessed by the backend service
 const saveFile = async (base64Data: string | null, userId: string, filename: string) => {
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
         back: backImageUrl
       });
 
-      // Send both images to backend for verification
+      // Send both images to backend for verification with JWT auth
       const backendPayload = {
         user_id: String(user_id),
         passport_first: frontImageUrl,
@@ -87,11 +88,14 @@ export async function POST(req: Request) {
       };
 
       try {
+        // Get secure headers with JWT token
+        const secureHeaders = await getSecureHeaders(String(user_id));
+        
         const pythonResponse = await axios.post(
           'http://127.0.0.1:8109/detect', 
           backendPayload,
           {
-            headers: { 'Content-Type': 'application/json' },
+            headers: secureHeaders,
             timeout: 60000
           }
         );
@@ -172,11 +176,14 @@ export async function POST(req: Request) {
         passport_old: side === 'back' ? imageUrl : "",
     };
 
+    // Get secure headers with JWT token
+    const secureHeaders = await getSecureHeaders(String(user_id));
+
     const pythonResponse = await axios.post(
       'http://0.0.0.0:8109/detect', 
       backendPayload,
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: secureHeaders,
         timeout: 60000 // 1 minute timeout
       }
     );

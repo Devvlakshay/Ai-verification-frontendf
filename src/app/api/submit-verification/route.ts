@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import { getSecureHeaders } from '@/lib/jwt';
 
 // Helper to save base64 to disk
 const saveFile = async (base64Data: string | null, userId: string, filename: string) => {
@@ -78,12 +79,14 @@ export async function POST(req: Request) {
 
     console.log("Sending Payload to Python:", JSON.stringify(backendPayload, null, 2));
 
-    // 4. Send to Python Backend
+    // 4. Send to Python Backend with JWT authentication
+    const secureHeaders = await getSecureHeaders(String(user_id));
+    
     const pythonResponse = await axios.post(
       'http://0.0.0.0:8109/detect', 
       backendPayload,
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: secureHeaders,
         timeout: 120000 // 2 minutes timeout for OCR/AI
       }
     );

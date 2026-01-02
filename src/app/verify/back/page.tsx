@@ -13,17 +13,19 @@ export default function BackPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [image, setImage] = useState<string | null>(data.passport_old);
+  const [isRedirectingToSelfie, setIsRedirectingToSelfie] = useState(false);
 
   // Check if front image exists on mount - but ONLY after store is loaded
+  // Skip this check if we're already redirecting to selfie due to verification failure
   useEffect(() => {
-    if (!isLoaded) return; // Wait for store to load
+    if (!isLoaded || isRedirectingToSelfie) return; // Wait for store to load or skip if redirecting to selfie
     
     if (!data.passport_first) {
       console.error('Front card not found in store:', data);
       setError('Front card not found. Redirecting to front card page...');
       setTimeout(() => router.push('/verify/front'), 2000);
     }
-  }, [isLoaded, data.passport_first, router]);
+  }, [isLoaded, data.passport_first, router, isRedirectingToSelfie]);
 
   const handleImageUpdateAndVerify = async (img: string) => {
     if (!img) return;
@@ -61,6 +63,9 @@ export default function BackPage() {
         router.push('/verify/result'); // Navigate to final page
       } else {
         // --- FAILURE: One or both cards not detected ---
+        // Set flag to prevent useEffect from redirecting to front page
+        setIsRedirectingToSelfie(true);
+        
         // Clear all stored data since verification failed
         updateField('selfie_photo', null);
         updateField('passport_first', null);
@@ -84,32 +89,32 @@ export default function BackPage() {
     }
   };
   
-  // Simple Modal for showing errors
+  // Simple Modal for showing errors - Responsive
   const ErrorPopup = () => (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 border border-red-500/50 rounded-2xl p-6 text-center shadow-2xl max-w-sm mx-auto">
-        <h3 className="text-xl font-bold text-red-400 mb-3">Verification Failed</h3>
-        <p className="text-white/80 mb-4">{error}</p>
-        <p className="text-white/60 text-sm">Redirecting to selfie page...</p>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 sm:p-6">
+      <div className="bg-gray-800 border border-red-500/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-center shadow-2xl max-w-xs sm:max-w-sm mx-auto w-full">
+        <h3 className="text-lg sm:text-xl font-bold text-red-400 mb-2 sm:mb-3">Verification Failed</h3>
+        <p className="text-white/80 mb-3 sm:mb-4 text-sm sm:text-base">{error}</p>
+        <p className="text-white/60 text-xs sm:text-sm">Redirecting to selfie page...</p>
       </div>
     </div>
   );
 
   return (
-    <div className="flex flex-col h-full pt-4">
+    <div className="flex flex-col h-full min-h-[calc(100vh-2rem)] min-h-[calc(100dvh-2rem)] pt-4 sm:pt-6">
       {error && <ErrorPopup />}
 
       <div className="text-center px-4">
-        <h2 className="text-2xl font-bold text-white">Aadhaar Back</h2>
-        <p className="text-white/70 text-sm">Capture the back side with the address.</p>
+        <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white">Aadhaar Back</h2>
+        <p className="text-white/70 text-xs sm:text-sm mt-1">Capture the back side with the address.</p>
       </div>
       
-      <div className="flex-grow flex items-center justify-center my-4">
+      <div className="flex-center flex items-center justify-center my-4 sm:my-6">
         {loading ? (
-          <div className="flex flex-col items-center gap-4 text-white">
-            <Loader2 className="animate-spin text-lavender" size={48} />
-            <p className="font-semibold text-lg">Verifying Both Cards...</p>
-            <p className="text-sm text-white/70">Checking front and back Aadhaar cards.</p>
+          <div className="flex flex-col items-center gap-3 sm:gap-4 text-white px-4">
+            <Loader2 className="animate-spin text-lavender w-10 h-10 sm:w-12 sm:h-12" />
+            <p className="font-semibold text-base sm:text-lg">Verifying Both Cards...</p>
+            <p className="text-xs sm:text-sm text-white/70 text-center">Checking front and back Aadhaar cards.</p>
           </div>
         ) : (
           <CameraCapture 

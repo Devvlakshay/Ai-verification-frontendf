@@ -14,8 +14,51 @@
   --color-white: var(--white);
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   background-color: var(--deep-violet);
   color: var(--white);
   font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height for mobile */
+  overflow-x: hidden;
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+}
+
+/* Smooth scrollbar for desktop */
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--deep-violet);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--royal-purple);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--lavender);
+  }
+}
+
+/* Prevent text selection on touch devices for better UX */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
 }

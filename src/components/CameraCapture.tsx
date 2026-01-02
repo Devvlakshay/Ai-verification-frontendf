@@ -362,13 +362,13 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
   };
 
   return (
-    <div className="flex flex-col items-center w-full h-full mx-auto border-none rounded-none bg-transparent shadow-none relative">
-      <h3 className="text-lg font-semibold mb-3 text-white">{label}</h3>
+    <div className="flex flex-col items-center w-full h-full mx-auto border-none rounded-none bg-transparent shadow-none relative px-2 sm:px-4">
+      <h3 className="text-base sm:text-lg font-semibold mb-2 sm:mb-3 text-white">{label}</h3>
       
-      {error && <div className="text-red-400 text-sm mb-2">{error}</div>}
+      {error && <div className="text-red-400 text-xs sm:text-sm mb-2">{error}</div>}
 
       <div className={cn(
-        "relative w-full rounded-2xl overflow-hidden mb-4 shadow-inner ring-1 ring-royal-purple isolate",
+        "relative w-full max-w-sm sm:max-w-md md:max-w-lg rounded-xl sm:rounded-2xl overflow-hidden mb-3 sm:mb-4 shadow-inner ring-1 ring-royal-purple isolate",
         isSelfie ? 'aspect-[3/4]' : 'aspect-[8/5]'
       )}>
         
@@ -400,31 +400,31 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
               <div className="w-full h-full border-4 border-dashed border-white/50 rounded-2xl" />
             </div>
             
-            {/* Countdown Overlay */}
+            {/* Countdown Overlay - Responsive */}
             {isSelfie && isAligned && countdown > 0 && (
               <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
-                <span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
+                <span className="text-6xl sm:text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
               </div>
             )}
 
-            {/* Status Badge */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
+            {/* Status Badge - Responsive */}
+            <div className="absolute top-2 sm:top-4 left-1/2 -translate-x-1/2 z-20">
                <div className={cn(
-                 "px-4 py-1.5 rounded-full font-bold text-xs uppercase tracking-wide backdrop-blur-md shadow-lg transition-colors duration-300 flex items-center gap-2",
+                 "px-3 sm:px-4 py-1 sm:py-1.5 rounded-full font-bold text-[10px] sm:text-xs uppercase tracking-wide backdrop-blur-md shadow-lg transition-colors duration-300 flex items-center gap-1.5 sm:gap-2",
                  isAligned ? "bg-lavender/90 text-deep-violet" : "bg-red-500/90 text-white"
                )}>
-                 {isAligned ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                 {isAligned ? <CheckCircle2 size={12} className="sm:w-3.5 sm:h-3.5" /> : <AlertCircle size={12} className="sm:w-3.5 sm:h-3.5" />}
                  {getStatusText()}
                </div>
             </div>
           </>
         )}
         
-        {/* Loading Spinner for Camera Init */}
+        {/* Loading Spinner for Camera Init - Responsive */}
         {!isStreaming && !preview && !error && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70 bg-deep-violet/50 z-30">
-                <Camera size={48} className="animate-pulse" />
-                <p className="mt-2 text-sm">Initializing...</p>
+                <Camera size={36} className="sm:w-12 sm:h-12 animate-pulse" />
+                <p className="mt-2 text-xs sm:text-sm">Initializing...</p>
             </div>
         )}
       </div>
@@ -434,24 +434,24 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
           <div className="flex flex-col items-center gap-2">
             <button 
               onClick={retake}
-              className="flex items-center gap-2 px-6 py-2 bg-white/10 border border-lavender/30 text-white rounded-full hover:bg-white/20"
+              className="flex items-center gap-2 px-4 sm:px-6 py-1.5 sm:py-2 bg-white/10 border border-lavender/30 text-white rounded-full hover:bg-white/20 text-sm sm:text-base active:scale-95 transition-transform"
             >
-              <RefreshCw size={18} /> Retake
+              <RefreshCw size={16} className="sm:w-[18px] sm:h-[18px]" /> Retake
             </button>
             {retakeActions}
           </div>
         ) : (
-          <div className="flex gap-4">
+          <div className="flex gap-3 sm:gap-4">
              {/* Switch Camera Button - Only show for non-selfie */}
              {!isSelfie && (
                <button 
                 onClick={() => {
                   setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
                 }}
-                className="p-3 bg-royal-purple/50 text-white rounded-full hover:bg-royal-purple"
+                className="p-2.5 sm:p-3 bg-royal-purple/50 text-white rounded-full hover:bg-royal-purple active:scale-95 transition-transform"
                 title="Switch Camera"
               >
-                <RefreshCw size={20} />
+                <RefreshCw size={18} className="sm:w-5 sm:h-5" />
               </button>
              )}
 
@@ -459,7 +459,7 @@ export default function CameraCapture({ onCapture, label, initialImage, isSelfie
             {!isSelfie && (
               <button 
                 onClick={captureImage}
-                className="px-8 py-2 bg-lavender text-deep-violet rounded-full font-bold shadow-lg transition-all transform active:scale-95 hover:bg-opacity-80 hover:shadow-lavender/30"
+                className="px-6 sm:px-8 py-2 bg-lavender text-deep-violet rounded-full font-bold shadow-lg transition-all transform active:scale-95 hover:bg-opacity-80 hover:shadow-lavender/30 text-sm sm:text-base"
               >
                 Capture
               </button>

@@ -37,7 +37,7 @@ export default function Home() {
       const decoded = decodeJwt(token);
       
       // Verify password field
-      if (!decoded || decoded.password !== '123569') {
+      if (!decoded || decoded.password !== process.env.NEXT_PUBLIC_JWT_PASSWORD) {
         setError('Invalid token or password. Access denied.');
         return;
       }
@@ -75,21 +75,21 @@ export default function Home() {
   }, [router, updateField]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-deep-violet text-white p-6 text-center">
+    <div className="min-h-screen min-h-dvh flex flex-col items-center justify-center bg-deep-violet text-white p-4 sm:p-6 md:p-8 text-center">
        <div
         className="absolute inset-0 z-0"
         style={{
           background: 'radial-gradient(circle at center, #3E1875 0%, #140030 70%)',
         }}
       />
-      <div className="relative z-10 flex flex-col items-center">
+      <div className="relative z-10 flex flex-col items-center w-full max-w-sm sm:max-w-md md:max-w-lg px-4">
         {error ? (
-          <div className="bg-red-500/20 p-4 rounded-lg shadow-lg text-white">
-            <h1 className="text-2xl font-bold">{error}</h1>
+          <div className="bg-red-500/20 p-4 sm:p-6 rounded-lg sm:rounded-xl shadow-lg text-white w-full">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold leading-tight">{error}</h1>
           </div>
         ) : (
           <div className="text-white/80">
-            <h1 className="text-2xl font-bold">Verifying...</h1>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Verifying...</h1>
           </div>
         )}
       </div>

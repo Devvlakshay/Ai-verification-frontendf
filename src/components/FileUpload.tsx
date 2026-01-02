@@ -53,14 +53,14 @@ export default function FileUpload({ onUpload, label }: Props) {
   };
 
   return (
-    <div className="mt-6 text-center">
+    <div className="mt-4 sm:mt-6 text-center">
       <label 
-        className={`inline-flex items-center gap-2 text-sm text-purple-300 font-medium cursor-pointer hover:text-white transition-colors bg-white/5 px-4 py-2 rounded-full border border-white/10 hover:bg-white/10 ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
+        className={`inline-flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-purple-300 font-medium cursor-pointer hover:text-white transition-colors bg-white/5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-white/10 hover:bg-white/10 active:scale-95 transition-transform ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
       >
         {isProcessing ? (
-          <Loader2 className="animate-spin" size={16} />
+          <Loader2 className="animate-spin w-3.5 h-3.5 sm:w-4 sm:h-4" />
         ) : (
-          <ImagePlus size={16} />
+          <ImagePlus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         )}
         {isProcessing ? "Optimizing..." : label}
         

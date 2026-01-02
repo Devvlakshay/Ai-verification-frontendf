@@ -5,7 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -15,8 +15,11 @@ import cv2
 import torch
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from ultralytics import YOLO
 
@@ -29,6 +32,61 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# --- JWT Configuration ---
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "your-super-secret-key-change-in-production")
+JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
+JWT_ISSUER = os.environ.get("JWT_ISSUER", "ai-verification-frontend")
+
+# CORS Configuration
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+
+security = HTTPBearer()
+
+
+def verify_jwt_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """
+    Verify JWT token from Authorization header.
+    Returns the decoded payload if valid.
+    """
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(
+            token,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+            options={"verify_aud": False}
+        )
+        
+        # Verify issuer
+        if payload.get("iss") != JWT_ISSUER:
+            logger.warning(f"Invalid JWT issuer: {payload.get('iss')}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token issuer",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check expiration (jose library handles this, but double-check)
+        exp = payload.get("exp")
+        if exp and datetime.utcnow().timestamp() > exp:
+            logger.warning("JWT token expired")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        logger.info(f"JWT verified for request_id: {payload.get('request_id', 'unknown')}")
+        return payload
+        
+    except JWTError as e:
+        logger.error(f"JWT verification failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 # --- Card Detection Pipeline ---
@@ -171,6 +229,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
+    max_age=600,  # Cache preflight for 10 minutes
+)
+
 
 class Config:
     """Application configuration"""
@@ -234,16 +303,23 @@ async def download_image(
 
 
 @app.post("/detect", response_class=JSONResponse, tags=["Detection"])
-async def detect_aadhaar_cards(request: DetectionRequest):
+async def detect_aadhaar_cards(
+    request: DetectionRequest,
+    jwt_payload: dict = Depends(verify_jwt_token)
+):
     """
     Detect Aadhaar front and/or back cards from provided URLs.
     Handles requests with one or both image URLs.
+    Requires valid JWT token in Authorization header.
     """
     if detector is None:
         return JSONResponse(
             status_code=503,
             content={"success": False, "message": "Detector not initialized"}
         )
+
+    # Log the authenticated request
+    logger.info(f"Authenticated request from: {jwt_payload.get('request_id', 'unknown')}")
 
     # Check if at least one image URL is provided
     if not request.passport_first and not request.passport_old:
