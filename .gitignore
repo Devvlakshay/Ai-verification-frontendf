@@ -34,9 +34,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# uploads
-public/uploads
-
 # vercel
 .vercel
 
@@ -48,8 +45,6 @@ public/uploads
 # virtual environments
 backend/venv/
 venv/
-.env
-.env.*
 backend/.env
 
 # python cache
@@ -57,40 +52,77 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+backend/__pycache__/
 
 # python version
 backend/.python-version
 
-# models / ML artifacts
+# backend models (large files)
 backend/models/
-*.pt
-*.onnx
-*.weights
+backend/models/*.pt
 
 # temp / runtime
 backend/temp/
+backend/temp/downloads/
 *.log
 
-# build artifacts
+
+# =========================
+# ML Models (Large Files)
+# =========================
+
+# ONNX models (use Git LFS or download separately)
+public/models/*.onnx
+*.pt
+*.weights
+
+# Keep model_info.json
+!public/models/model_info.json
+
+
+# =========================
+# ONNX Runtime WASM Files
+# =========================
+
+# These are fetched from CDN, no need to track
+public/onnx/
+
+
+# =========================
+# User Data / Uploads
+# =========================
+
+# User uploaded files
+public/uploads/
+data/
+data/jwt-logs/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+
+# =========================
+# Generated / Temp Files
+# =========================
+
+# JWT helper scripts
+generate-jwt.js
+JWT_STRUCTURE.md
+
+# System design docs (binary)
+*.pdf
+
+# Build artifacts
 build/
 dist/
 *.egg-info/
 
-# testing / coverage
+# Testing / coverage
 .pytest_cache/
 .coverage
 htmlcov/
-
-# JWT and sensitive data
-backend/.env
-.env
-.env.*
-data/
-public/uploads/
-
-# JWT logs and generated tokens
-JWT_STRUCTURE.md
-generate-jwt.js
 
 
 # =========================
@@ -98,6 +130,12 @@ generate-jwt.js
 # =========================
 
 .DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+Thumbs.db
 Thumbs.db
 .vscode/
 .idea/

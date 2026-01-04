@@ -119,9 +119,12 @@ export default function CameraCapture({
   useEffect(() => {
     if (isSelfie || !isModelReady || !isStreaming || preview) return;
 
-    // Start detection loop
+    // Start detection loop with optimized interval (750ms instead of 500ms to reduce CPU/memory)
     const runDetection = async () => {
       if (!videoRef.current || !isStreaming) return;
+      
+      // Skip detection if page is not visible (tab in background)
+      if (document.hidden) return;
       
       try {
         const result = await detectAadhaar(videoRef.current);
@@ -142,8 +145,8 @@ export default function CameraCapture({
       }
     };
 
-    // Run detection every 500ms
-    aadhaarDetectionRef.current = setInterval(runDetection, 500);
+    // Run detection every 750ms (increased from 500ms for better performance)
+    aadhaarDetectionRef.current = setInterval(runDetection, 750);
 
     return () => {
       if (aadhaarDetectionRef.current) {
@@ -354,8 +357,24 @@ export default function CameraCapture({
     
     const canvas = document.createElement('canvas');
     const video = videoRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    
+    // Reduce resolution for memory optimization (max 1280px on longest side)
+    const maxDim = 1280;
+    let width = video.videoWidth;
+    let height = video.videoHeight;
+    
+    if (width > maxDim || height > maxDim) {
+      if (width > height) {
+        height = Math.round((height / width) * maxDim);
+        width = maxDim;
+      } else {
+        width = Math.round((width / height) * maxDim);
+        height = maxDim;
+      }
+    }
+    
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
     
     // Mirror if user facing
@@ -364,9 +383,10 @@ export default function CameraCapture({
       ctx?.scale(-1, 1);
     }
     
-    ctx?.drawImage(video, 0, 0);
+    ctx?.drawImage(video, 0, 0, width, height);
     
-    const base64 = canvas.toDataURL('image/jpeg', 0.9);
+    // Use lower quality (0.8 instead of 0.9) to reduce memory
+    const base64 = canvas.toDataURL('image/jpeg', 0.8);
     
     stopCamera();
     setPreview(base64);

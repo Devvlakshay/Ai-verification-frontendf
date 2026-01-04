@@ -1,4 +1,4 @@
-# �️ AI-Powered Identity Verification System
+# 🛡️ AI-Powered Identity Verification System
 ---
 
 ## 📋 Table of Contents
@@ -6,12 +6,15 @@
 - [Overview](#-overview)
 - [Architecture](#-architecture)
 - [Features](#-features)
+- [On-Device AI (Edge Inference)](#-on-device-ai-edge-inference)
+- [Memory Optimization](#-memory-optimization)
 - [Security](#-security)
 - [Project Structure](#-project-structure)
 - [Getting Started](#-getting-started)
 - [API Reference](#-api-reference)
 - [Environment Variables](#-environment-variables)
 - [Usage](#-usage)
+- [Technology Stack](#️-technology-stack)
 - [Contributing](#-contributing)
 - [License](#-license)
 
@@ -21,69 +24,169 @@
 
 This application provides a complete identity verification solution that:
 
-1. **Captures user selfie** using device camera
+1. **Captures user selfie** using device camera with face alignment AI
 2. **Scans Aadhaar cards** (front & back) using camera or file upload
-3. **Verifies document authenticity** using AI-powered detection (YOLO model)
-4. **Detects fraud** by identifying printed/photocopied documents
-5. **Secures all communications** with JWT authentication and CORS protection
+3. **Real-time document detection** using on-device ONNX model (edge inference)
+4. **Verifies document authenticity** using AI-powered detection (YOLO model)
+5. **Detects fraud** by identifying printed/photocopied documents
+6. **Secures all communications** with JWT authentication and CORS protection
 
 ---
 
 ## 🏗️ Architecture
+
+### Edge-First Architecture (with Backend Fallback)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         Client Browser                               │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │                    Next.js Frontend                          │   │
+│  │  ┌─────────────────────────────────────────────────────┐    │   │
+│  │  │           ON-DEVICE AI (Primary)                     │    │   │
+│  │  │  • ONNX Runtime Web (WASM)                          │    │   │
+│  │  │  • Real-time Aadhaar Detection                       │    │   │
+│  │  │  • MediaPipe Face Detection (Selfie)                 │    │   │
+│  │  │  • Singleton Model Manager (Memory Optimized)        │    │   │
+│  │  └─────────────────────────────────────────────────────┘    │   │
+│  │                                                              │   │
 │  │  • Camera Capture    • File Upload    • State Management    │   │
 │  │  • IndexedDB Storage • JWT Handling   • Responsive UI       │   │
 │  └─────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────┬──────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────────┘
                                │
-                               │ HTTPS + JWT (Authorization Header)
-                               │ CORS Protected
+                               │ (Optional Fallback)
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      Next.js API Routes                              │
+│                  FastAPI Backend (Fallback Only)                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  /api/verify-image     │  /api/submit-verification          │   │
-│  │  /api/save-selfie      │  /api/save-jwt-data                │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │
-                               │ HTTP + JWT (Bearer Token)
-                               │ Internal Network
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      FastAPI Backend (Python)                        │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  • JWT Validation      • CORS Middleware                    │   │
-│  │  • YOLO Model Inference • Image Processing                  │   │
-│  │  • Aadhaar Detection   • Fraud Detection                    │   │
+│  │  • Server-side YOLO verification (if edge fails)            │   │
+│  │  • Manual review queue for flagged submissions              │   │
+│  │  • JWT validation for secure API access                     │   │
+│  │  • GPU-accelerated inference (CUDA)                         │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+### Current Flow (Edge-Only)
+
+```
+┌──────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐
+│  Selfie  │───▶│  Front   │───▶│   Back    │───▶│  Result  │
+│  Page    │    │  Card    │    │   Card    │    │  Page    │
+└──────────┘    └──────────┘    └───────────┘    └──────────┘
+     │               │                │
+     ▼               ▼                ▼
+┌──────────┐    ┌──────────────────────────┐
+│MediaPipe │    │  ONNX Runtime Web        │
+│Face Det. │    │  (Aadhaar Detection)     │
+└──────────┘    └──────────────────────────┘
+
+✅ All AI runs in browser - No server calls needed!
+```
+
+### Backend Fallback (When Needed)
+
+The backend APIs remain available for:
+- **Manual review** - Flag suspicious submissions for human verification
+- **Server-side re-verification** - Double-check edge results if needed
+- **Audit logging** - Store verification attempts for compliance
+- **Future features** - Ready for additional verification steps
 
 ---
 
 ## ✨ Features
 
 ### Frontend (Next.js)
-- 📱 **Responsive UI** - Works on all devices
+- 📱 **Responsive UI** - Works on all devices (mobile-first design)
 - 📷 **Camera Integration** - Capture selfie and documents
+- 🤖 **On-Device AI** - Real-time detection without server calls
 - 📤 **File Upload** - Alternative to camera capture
 - 💾 **IndexedDB Storage** - Persist data across steps
 - 🔐 **JWT Token Handling** - Secure session management
 - 🎨 **Modern UI** - Tailwind CSS with animations
+- ⚡ **Memory Optimized** - Singleton model management
 
-### Backend (FastAPI)
-- 🤖 **YOLO AI Model** - Real-time document detection
+### On-Device AI (Primary)
+- 🧠 **ONNX Runtime Web** - Browser-based ML inference
+- 👤 **MediaPipe Face Detection** - Real-time face alignment for selfies
+- 🎯 **YOLOv8 Detection** - Aadhaar card front/back/print detection
+- 🔄 **Shared Model Instance** - Memory-efficient singleton pattern
+- 📊 **Live Feedback** - Real-time detection status during capture
+
+### Backend (Fallback Only)
+- 🤖 **YOLO AI Model** - Server-side document verification
 - 🛡️ **JWT Authentication** - Secure API endpoints
 - 🌐 **CORS Protection** - Controlled origin access
 - 🔍 **Fraud Detection** - Identifies printed/fake documents
 - ⚡ **Async Processing** - High-performance image handling
 - 🔧 **GPU Support** - CUDA acceleration when available
+- 📝 **Available for** - Manual review, audit logs, re-verification
+
+---
+
+## 🧠 On-Device AI (Edge Inference)
+
+### How It Works
+
+The application uses **ONNX Runtime Web** to run YOLOv8 models directly in the browser:
+
+1. **Model Loading**: ONNX model (~99MB) loaded once via singleton manager
+2. **Preprocessing**: Video frames resized to 640x640 with letterboxing
+3. **Inference**: WASM-based inference runs on device
+4. **Postprocessing**: Detection results parsed and displayed in real-time
+
+### Model Manager Architecture
+
+```typescript
+// Singleton pattern prevents duplicate model loading
+const manager = getAadhaarModelManager();
+
+// Single shared ONNX session across all components
+await manager.loadModel();
+
+// Detect from video (CameraCapture)
+const result = await manager.detectVideo(videoElement);
+
+// Detect from image (FileUpload)
+const result = await manager.detectImage(imageBase64);
+
+// Cleanup when done (Result page)
+await unloadAadhaarModel();
+```
+
+### Detection Classes
+
+| Class | Description |
+|-------|-------------|
+| `aadhaar_front` | Front side of Aadhaar card (with photo) |
+| `aadhaar_back` | Back side of Aadhaar card (with QR code) |
+| `print_aadhaar` | Printed/photocopied Aadhaar (fraud indicator) |
+
+---
+
+## 🚀 Memory Optimization
+
+### Problem
+Running ML models in browser can consume 1GB+ of memory, causing crashes on mobile devices.
+
+### Solution
+Implemented several optimizations to reduce memory to ~300-400MB:
+
+| Optimization | Memory Saved | Description |
+|--------------|--------------|-------------|
+| **Singleton Model** | ~200MB | One shared ONNX session instead of per-component |
+| **Reusable Canvas** | ~20MB | Single canvas with `willReadFrequently` optimization |
+| **Reduced Detection** | CPU -33% | 750ms interval + visibility check |
+| **Image Compression** | ~40% | Max 1280px, JPEG quality 0.8 |
+| **Tensor Disposal** | ~50MB | Explicit cleanup after each inference |
+| **DB Caching** | ~5MB | Single cached IndexedDB connection |
+
+### Key Files
+
+- [`src/lib/aadhaar-model-manager.ts`](src/lib/aadhaar-model-manager.ts) - Singleton model manager
+- [`src/hooks/useAadhaarDetection.ts`](src/hooks/useAadhaarDetection.ts) - React hook using manager
+- [`src/components/CameraCapture.tsx`](src/components/CameraCapture.tsx) - Optimized capture component
 
 ---
 
@@ -116,6 +219,8 @@ ai-verification-frontend/
 ├── 📄 tsconfig.json             # TypeScript configuration
 ├── 📄 .env.local                # Frontend environment variables
 ├── 📄 .env.example              # Example environment template
+├── 📄 docker-compose.yml        # Docker orchestration
+├── 📄 Dockerfile.frontend       # Frontend container
 │
 ├── 📂 src/
 │   ├── 📂 app/
@@ -129,30 +234,59 @@ ai-verification-frontend/
 │   │   │   ├── 📂 save-selfie/       # Selfie storage
 │   │   │   └── 📂 save-jwt-data/     # JWT data storage
 │   │   │
+│   │   ├── 📂 edge-demo/        # Edge inference demo page
+│   │   │
 │   │   └── 📂 verify/           # Verification Flow Pages
 │   │       ├── 📄 layout.tsx    # Verification layout
+│   │       ├── 📂 selfie/       # Selfie capture (MediaPipe)
+│   │       ├── 📂 front/        # Front card capture (ONNX)
+│   │       ├── 📂 back/         # Back card capture (ONNX)
 │   │       ├── 📂 details/      # User details form
-│   │       ├── 📂 selfie/       # Selfie capture
-│   │       ├── 📂 front/        # Front card capture
-│   │       ├── 📂 back/         # Back card capture
-│   │       └── 📂 result/       # Verification result
+│   │       └── 📂 result/       # Verification result + cleanup
 │   │
 │   ├── 📂 components/
-│   │   ├── 📄 CameraCapture.tsx      # Camera component
-│   │   ├── 📄 FileUpload.tsx         # File upload component
-│   │   ├── 📄 VerificationStore.ts   # State management
-│   │   └── 📄 StoreResetter.tsx      # Reset utility
+│   │   ├── 📄 CameraCapture.tsx      # Camera + AI detection
+│   │   ├── 📄 FileUpload.tsx         # File upload + compression
+│   │   ├── 📄 EdgeDetector.tsx       # Edge inference component
+│   │   ├── 📄 VerificationStore.ts   # Zustand state management
+│   │   └── 📄 StoreResetter.tsx      # Reset + memory cleanup
+│   │
+│   ├── 📂 hooks/
+│   │   ├── 📄 useAadhaarDetection.ts # Aadhaar detection hook
+│   │   └── 📄 useEdgeInference.ts    # Generic edge inference hook
 │   │
 │   └── 📂 lib/
-│       ├── 📄 jwt.ts            # JWT utilities
-│       ├── 📄 db.ts             # IndexedDB wrapper
-│       └── 📄 utils.ts          # Helper functions
+│       ├── 📄 aadhaar-model-manager.ts  # 🆕 Singleton model manager
+│       ├── 📄 jwt.ts                    # JWT utilities
+│       ├── 📄 db.ts                     # IndexedDB wrapper
+│       ├── 📄 utils.ts                  # Helper functions
+│       ├── 📄 clientAI.ts               # Client-side AI utilities
+│       │
+│       └── 📂 edge-inference/           # Edge ML utilities
+│           ├── 📄 index.ts              # Exports
+│           ├── 📄 engine.ts             # Inference engine
+│           ├── 📄 image-utils.ts        # Image preprocessing
+│           ├── 📄 postprocess.ts        # Detection postprocessing
+│           └── 📄 types.ts              # Type definitions
+│
+├── 📂 public/
+│   ├── 📂 models/               # ONNX models for edge inference
+│   │   ├── 📄 aadhaar_detector.onnx       # Full model (~99MB)
+│   │   ├── 📄 aadhaar_detector_small.onnx # Small model (~99MB)
+│   │   └── 📄 model_info.json             # Model metadata
+│   │
+│   ├── 📂 onnx/                 # ONNX Runtime Web files
+│   │   └── 📄 ort.*.mjs         # WASM runtime files
+│   │
+│   └── 📂 uploads/              # Uploaded files storage
 │
 ├── 📂 backend/
 │   ├── 📄 main.py               # FastAPI application
+│   ├── 📄 main_stateless.py     # Stateless API version
+│   ├── 📄 onnx_detector.py      # ONNX-based detection
+│   ├── 📄 convert_to_onnx.py    # Model conversion script
 │   ├── 📄 requirements.txt      # Python dependencies
-│   ├── 📄 .env                  # Backend environment variables
-│   ├── 📄 .env.example          # Example environment template
+│   ├── 📄 Dockerfile            # Backend container
 │   │
 │   ├── 📂 models/
 │   │   └── 📄 best4.pt          # YOLO model weights
@@ -160,8 +294,13 @@ ai-verification-frontend/
 │   └── 📂 temp/
 │       └── 📂 downloads/        # Temporary image storage
 │
-└── 📂 public/
-    └── 📂 uploads/              # Uploaded files storage
+├── 📂 tests/                    # Load testing
+│   └── 📂 k6/
+│       ├── 📄 load_test.js
+│       └── 📄 load_test_with_jwt.js
+│
+└── 📂 data/
+    └── 📂 jwt-logs/             # JWT logging for debugging
 ```
 
 ---
@@ -337,7 +476,7 @@ Content-Type: application/json
   "name": "John Doe",
   "dob": "15-08-1995",
   "gender": "Male",
-  "password": "123569"
+  "password": ""
 }
 ```
 
@@ -355,8 +494,39 @@ http://localhost:3000/?token=<your-jwt-token>
 ### Verification Flow
 
 ```
-1. Details → 2. Selfie → 3. Front Card → 4. Back Card → 5. Result
+1. Selfie → 2. Front Card → 3. Back Card → 4. Result
 ```
+
+### Detailed Step Flow
+
+| Step | Page | AI Used | Description |
+|------|------|---------|-------------|
+| 1 | `/verify/selfie` | MediaPipe (GPU) | Face detection + auto-capture when aligned |
+| 2 | `/verify/front` | ONNX (WASM) | Real-time front card detection |
+| 3 | `/verify/back` | ONNX (WASM) | Real-time back card detection |
+| 4 | `/verify/result` | - | Shows status + cleans up memory |
+
+---
+
+## 🛠️ Technology Stack
+
+### Frontend
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Next.js | 16.x | React framework with App Router |
+| TypeScript | 5.x | Type safety |
+| Tailwind CSS | 4.x | Styling |
+| ONNX Runtime Web | 1.17.x | Browser ML inference |
+| MediaPipe | 0.10.x | Face detection |
+| IndexedDB | - | Client-side storage |
+
+### Backend
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| FastAPI | 0.115.x | Python API framework |
+| Ultralytics | 8.x | YOLOv8 inference |
+| PyJWT | 2.x | JWT authentication |
+| Python | 3.11+ | Runtime |
 
 ---
 

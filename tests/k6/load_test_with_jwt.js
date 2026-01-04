@@ -55,7 +55,7 @@ function generateJWT(userId) {
     name: `Test User ${userId}`,
     dob: '15-12-2002',
     gender: 'Male',
-    password: '123569',
+    password: '',
     iss: 'ai-verification-frontend',
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 3600

@@ -3,13 +3,22 @@ const DB_NAME = 'AI_Verification_DB';
 const STORE_NAME = 'kyc_data';
 const DB_VERSION = 1;
 
+// Cache DB connection to avoid reopening
+let dbInstance: IDBDatabase | null = null;
+
 export const initDB = (): Promise<IDBDatabase> => {
   if (typeof window === 'undefined') return Promise.resolve(null as any);
+  
+  // Return cached instance if available
+  if (dbInstance) return Promise.resolve(dbInstance);
   
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      dbInstance = request.result;
+      resolve(dbInstance);
+    };
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -51,4 +60,15 @@ export const clearDB = async () => {
       const store = transaction.objectStore(STORE_NAME);
       store.clear().onsuccess = () => resolve();
     });
+};
+
+/**
+ * Close the database connection and clear cache
+ * Call this when leaving the app to free memory
+ */
+export const closeDB = () => {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+  }
 };

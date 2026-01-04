@@ -1,12 +1,25 @@
 'use client';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useVerificationStore } from '@/components/VerificationStore';
 import { CheckCircle, PartyPopper, Clock, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { unloadAadhaarModel } from '@/lib/aadhaar-model-manager';
 
 export default function ResultPage() {
   const router = useRouter();
   const { data, clearImages } = useVerificationStore();
+
+  // Clean up ML model when reaching result page to free memory
+  useEffect(() => {
+    // Small delay to ensure page is rendered before cleanup
+    const timer = setTimeout(() => {
+      unloadAadhaarModel();
+      console.log('[Memory] Unloaded Aadhaar model on result page');
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleRestart = () => {
     clearImages();
