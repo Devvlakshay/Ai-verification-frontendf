@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { saveToDB, getFromDB, clearDB } from '@/lib/db';
 
 export type VerificationData = {
@@ -9,6 +9,11 @@ export type VerificationData = {
   selfie_photo: string | null;
   passport_first: string | null;
   passport_old: string | null;
+  // ONNX detection results
+  front_detection: object | null;
+  back_detection: object | null;
+  // Verification status
+  verification_status: 'pending' | 'approved' | 'rejected' | 'pending_review';
 };
 
 const INITIAL_STATE: VerificationData = {
@@ -19,6 +24,9 @@ const INITIAL_STATE: VerificationData = {
   selfie_photo: null,
   passport_first: null,
   passport_old: null,
+  front_detection: null,
+  back_detection: null,
+  verification_status: 'pending',
 };
 
 export const useVerificationStore = () => {
@@ -50,9 +58,9 @@ export const useVerificationStore = () => {
     }
   }, [data, isLoaded]);
 
-  const updateField = (field: keyof VerificationData, value: any) => {
+  const updateField = useCallback((field: keyof VerificationData, value: any) => {
     setData((prev) => ({ ...prev, [field]: value }));
-  };
+  }, []);
 
   const resetStore = async () => {
     setData(INITIAL_STATE);
@@ -65,8 +73,16 @@ export const useVerificationStore = () => {
       selfie_photo: null,
       passport_first: null,
       passport_old: null,
+      front_detection: null,
+      back_detection: null,
     }));
   };
 
-  return { data, updateField, resetStore, clearImages, isLoaded };
+  return { 
+    data, 
+    updateField, 
+    resetStore, 
+    clearImages, 
+    isLoaded,
+  };
 };

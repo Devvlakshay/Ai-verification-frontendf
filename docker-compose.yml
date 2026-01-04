@@ -1,0 +1,68 @@
+# Docker Compose for Hybrid AI Verification Architecture
+# Supports both development and production configurations
+
+version: '3.8'
+
+services:
+  # Stateless AI Backend - Zero disk I/O
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8109:8109"
+    environment:
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-super-secret-key-change-in-production}
+      - JWT_ALGORITHM=HS256
+      - JWT_ISSUER=ai-verification-frontend
+      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - CONFIDENCE_THRESHOLD=0.15
+      - LOW_CONFIDENCE_THRESHOLD=0.10
+      - MODEL1_PATH=models/best4.pt
+    volumes:
+      - ./backend/models:/app/models:ro
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8109/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - BACKEND_URL=http://backend:8109
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Redis for rate limiting (optional, for production)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  redis_data:

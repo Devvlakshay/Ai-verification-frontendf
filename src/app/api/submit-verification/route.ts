@@ -1,128 +1,116 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import axios from 'axios';
 import { getSecureHeaders } from '@/lib/jwt';
 
-// Helper to save base64 to disk
-const saveFile = async (base64Data: string | null, userId: string, filename: string) => {
-  if (!base64Data) return null;
+/**
+ * Stateless Submit Verification API Route
+ * 
+ * Key changes:
+ * - NO disk writes - images sent directly as base64
+ * - Supports force_upload flag for three-strike rule bypass
+ * - Handles pending_review status for manual review queue
+ */
 
-  // Remove header
-  const base64Image = base64Data.split(';base64,').pop();
-  if (!base64Image) return null;
+// Backend URL
+const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:8109';
 
-  // Define path: public/uploads/{user_id}/
-  const uploadDir = path.join(process.cwd(), 'public', 'uploads', userId);
-  
-  // Create folder
-  if (!fs.existsSync(uploadDir)) {
-    await fs.promises.mkdir(uploadDir, { recursive: true });
-  }
-  
-  const filePath = path.join(uploadDir, filename);
-  await fs.promises.writeFile(filePath, base64Image, { encoding: 'base64' });
-  
-  // Return public URL path
-  return `/uploads/${userId}/${filename}`;
-};
+interface SubmitVerificationRequest {
+  user_id: string;
+  dob?: string;
+  gender?: string;
+  selfie_photo?: string;
+  passport_first?: string;
+  passport_old?: string;
+  force_upload?: boolean;
+}
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body: SubmitVerificationRequest = await req.json();
     
-    // 1. Destructure ALL fields explicitly
     const { 
       user_id, 
-      dob,       // Check this value
-      gender,    // Check this value
+      dob,
+      gender,
       selfie_photo, 
       passport_first, 
-      passport_old 
+      passport_old,
+      force_upload = false
     } = body;
 
-    // Debug Log: Check what arrived from Frontend
     console.log("------------------------------------------------");
-    console.log("Incoming Verification Request:");
+    console.log("Stateless Verification Request:");
     console.log("User ID:", user_id);
     console.log("DOB Input:", dob);
     console.log("Gender Input:", gender);
+    console.log("Force Upload:", force_upload);
     console.log("------------------------------------------------");
 
     if (!user_id) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    // 2. Save Images locally
-    const selfiePath = await saveFile(selfie_photo, user_id, 'selfie.jpg');
-    const frontPath = await saveFile(passport_first, user_id, 'aadharfront.jpg');
-    const backPath = await saveFile(passport_old, user_id, 'aadharback.jpg');
-
-    if (!frontPath || !backPath) {
-      return NextResponse.json({ error: 'Failed to save one or more images' }, { status: 500 });
+    if (!passport_first || !passport_old) {
+      return NextResponse.json({ error: 'Both front and back images are required' }, { status: 400 });
     }
 
-    // Construct full URLs for the backend
-    const host = req.headers.get('host') || 'localhost:3000';
-    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-    
-    const frontUrl = `${protocol}://${host}${frontPath}`;
-    const backUrl = `${protocol}://${host}${backPath}`;
-    // const selfieUrl = selfiePath ? `${protocol}://${host}${selfiePath}` : null;
-
-    // 3. Construct Python Payload (Strict Mapping)
+    // Send base64 images directly to backend - NO DISK WRITES
     const backendPayload = {
-      user_id: String(user_id),       // Ensure string
-      passport_first: frontUrl,
-      passport_old: backUrl,
+      user_id: String(user_id),
+      front_image: passport_first,  // Base64 string
+      back_image: passport_old,     // Base64 string
+      force_upload: force_upload
     };
 
-    console.log("Sending Payload to Python:", JSON.stringify(backendPayload, null, 2));
+    console.log("Sending stateless payload to Python backend...");
 
-    // 4. Send to Python Backend with JWT authentication
     const secureHeaders = await getSecureHeaders(String(user_id));
     
     const pythonResponse = await axios.post(
-      'http://0.0.0.0:8109/detect', 
+      `${BACKEND_URL}/detect`, 
       backendPayload,
       {
         headers: secureHeaders,
-        timeout: 120000 // 2 minutes timeout for OCR/AI
+        timeout: 120000,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity
       }
     );
 
     console.log("Python Response Status:", pythonResponse.status);
     
-    // --- NEW LOGIC: Interpret the backend response ---
     const backendData = pythonResponse.data;
+    const status = backendData.data?.status || 'rejected';
 
     let final_decision = 'REJECTED';
-    // Use the message from the backend, or a default
     let reason = backendData.message || 'Verification failed.';
 
-    // Check for the specific success condition from the Python service
-    if (backendData.success && backendData.data?.both_detected) {
+    // Determine final decision based on status
+    if (status === 'approved' && backendData.success && backendData.data?.both_detected) {
       final_decision = 'APPROVED';
+    } else if (status === 'pending_review') {
+      final_decision = 'PENDING_REVIEW';
+      reason = 'Your document has been submitted for manual review.';
     }
 
-    // Construct a new response object for the frontend
     const frontendResponse = {
       final_decision: final_decision,
       reason: reason,
-      // Forward the original backend data under a 'details' key for transparency
+      status: status,
       details: backendData 
     };
 
     return NextResponse.json(frontendResponse);
 
-  } catch (error: any) {
-    console.error("API Route Error:", error.message);
-    if (error.response) {
-      console.error("Python Backend Error:", error.response.data);
-      return NextResponse.json(error.response.data, { status: error.response.status });
+  } catch (error: unknown) {
+    const err = error as { message?: string; response?: { data?: unknown; status?: number } };
+    console.error("API Route Error:", err.message);
+    if (err.response) {
+      console.error("Python Backend Error:", err.response.data);
+      return NextResponse.json(err.response.data, { status: err.response.status });
     }
     return NextResponse.json(
-      { error: 'Internal Server Error', details: error.message },
+      { error: 'Internal Server Error', details: err.message },
       { status: 500 }
     );
   }

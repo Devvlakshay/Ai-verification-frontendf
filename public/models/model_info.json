@@ -1,0 +1,18 @@
+{
+  "name": "aadhaar_detector",
+  "version": "1.0.0",
+  "inputSize": 640,
+  "inputSizeSmall": 320,
+  "classes": [
+    "aadhaar_back",
+    "aadhaar_front",
+    "print_aadhaar"
+  ],
+  "classMapping": {
+    "0": "aadhaar_back",
+    "1": "aadhaar_front", 
+    "2": "print_aadhaar"
+  },
+  "format": "onnx",
+  "opset": 12
+}
