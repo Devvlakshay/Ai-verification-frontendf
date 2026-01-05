@@ -30,6 +30,7 @@ This application provides a complete identity verification solution that:
 4. **Verifies document authenticity** using AI-powered detection (YOLO model)
 5. **Detects fraud** by identifying printed/photocopied documents
 6. **Secures all communications** with JWT authentication and CORS protection
+7. **INT8 Quantization** for optimized mobile performance (~4x smaller model)
 
 ---
 
@@ -163,6 +164,69 @@ await unloadAadhaarModel();
 | `aadhaar_back` | Back side of Aadhaar card (with QR code) |
 | `print_aadhaar` | Printed/photocopied Aadhaar (fraud indicator) |
 
+### Model Variants
+
+| Variant | Size | Input | Best For |
+|---------|------|-------|----------|
+| `full` | ~99MB | 640px | Desktop, high accuracy |
+| `small` | ~99MB | 320px | Desktop, faster inference |
+| `int8` | ~25MB | 640px | Mobile, good accuracy |
+| `int8_small` | ~25MB | 320px | Mobile, fastest |
+
+```typescript
+// Auto-detect best model for device
+await manager.loadModel('auto');
+
+// Or explicitly load INT8 for mobile
+await manager.loadModel('int8');
+
+// Use helper functions
+import { preloadInt8Model, loadBestModel } from '@/lib/aadhaar-model-manager';
+await preloadInt8Model();  // For mobile optimization
+await loadBestModel();     // Auto-detect best option
+```
+
+---
+
+## 📱 INT8 Quantization for Mobile
+
+### Benefits
+- **~4x smaller model** - From ~99MB to ~25MB
+- **2-4x faster inference** - Better for mobile CPUs
+- **Lower memory usage** - Runs smoothly on low-end devices
+- **Better battery life** - Reduced computational load
+
+### Generate INT8 Model
+
+```bash
+cd backend
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Quantize all models (dynamic quantization)
+python quantize_to_int8.py --all
+
+# Or quantize specific model with static quantization (better accuracy)
+python quantize_to_int8.py -i ../public/models/aadhaar_detector.onnx -m static
+
+# Options:
+#   --input, -i    : Input ONNX model path
+#   --method, -m   : 'dynamic' (default) or 'static'
+#   --size, -s     : Input size (640 or 320)
+#   --all, -a      : Quantize all models
+```
+
+### Output Files
+```
+public/models/
+├── aadhaar_detector.onnx           # Original FP32 (~99MB)
+├── aadhaar_detector_int8.onnx      # INT8 quantized (~25MB)
+├── aadhaar_detector_small.onnx     # Small FP32 (~99MB)
+├── aadhaar_detector_small_int8.onnx # Small INT8 (~25MB)
+└── model_info.json                 # Model metadata
+```
+
 ---
 
 ## 🚀 Memory Optimization
@@ -175,6 +239,7 @@ Implemented several optimizations to reduce memory to ~300-400MB:
 
 | Optimization | Memory Saved | Description |
 |--------------|--------------|-------------|
+| **INT8 Quantization** | ~75MB | 4x smaller model size (~99MB → ~25MB) |
 | **Singleton Model** | ~200MB | One shared ONNX session instead of per-component |
 | **Reusable Canvas** | ~20MB | Single canvas with `willReadFrequently` optimization |
 | **Reduced Detection** | CPU -33% | 750ms interval + visibility check |

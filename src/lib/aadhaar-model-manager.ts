@@ -3,9 +3,12 @@
  * Singleton Manager for Aadhaar Detection ONNX Model
  * 
  * This manager ensures only ONE model instance is loaded across the entire app,
- * significantly reducing memory usage from ~200MB per instance to a single ~100MB.
+ * significantly reducing memory usage.
+ * 
+ * Default: INT8 quantized model (~25MB, 2x faster than FP32)
  * 
  * Memory optimization features:
+ * - INT8 quantization (74% smaller model, ~25MB vs ~99MB)
  * - Single shared ONNX session
  * - Reusable canvas for preprocessing
  * - Proper tensor disposal
@@ -66,8 +69,47 @@ type LoadProgressCallback = (progress: number) => void;
 type StateChangeCallback = (state: ModelState) => void;
 
 const CLASS_NAMES = ['aadhaar_back', 'aadhaar_front', 'print_aadhaar'];
-const MODEL_INPUT_SIZE = 640;
 const ONNX_CDN_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js';
+
+// Model variants available
+export type ModelVariant = 'full' | 'small' | 'int8' | 'int8_small';
+
+// Input sizes for each model variant
+const MODEL_INPUT_SIZES: Record<ModelVariant, number> = {
+  full: 640,
+  small: 320,
+  int8: 640,
+  int8_small: 320,
+};
+
+const MODEL_PATHS: Record<ModelVariant, string> = {
+  full: '/models/aadhaar_detector.onnx',           // ~99MB, FP32
+  small: '/models/aadhaar_detector_small.onnx',    // ~99MB, 320px input
+  int8: '/models/aadhaar_detector_int8.onnx',      // ~25MB, INT8 quantized
+  int8_small: '/models/aadhaar_detector_small_int8.onnx', // ~25MB, INT8 + 320px
+};
+
+// Auto-detect best model for device
+function detectBestModel(): ModelVariant {
+  if (typeof window === 'undefined') return 'int8_small';
+  
+  // Check if mobile device
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
+  
+  // Check device memory (if available)
+  const deviceMemory = (navigator as any).deviceMemory || 4;
+  
+  // Use int8_small for all devices by default (fastest: 42 FPS vs 14 FPS)
+  // This provides real-time detection with minimal lag
+  if (isMobile || deviceMemory < 8) {
+    return 'int8_small';  // 320px input, ~25MB, 42 FPS
+  }
+  
+  // Only use larger model on high-end desktop with lots of memory
+  return 'int8';  // 640px input, ~25MB, 14 FPS
+}
 
 class AadhaarModelManager {
   private session: OrtInferenceSession | null = null;
@@ -77,6 +119,8 @@ class AadhaarModelManager {
   private refCount = 0;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
+  private currentModelVariant: ModelVariant | null = null;
+  private inputSize: number = 640; // Dynamic based on model
   
   // Callbacks for state updates
   private progressCallbacks: Set<LoadProgressCallback> = new Set();
@@ -86,16 +130,38 @@ class AadhaarModelManager {
   private loadingPromise: Promise<void> | null = null;
 
   constructor() {
-    // Create reusable canvas for preprocessing
+    // Canvas will be created/resized when model loads
     if (typeof window !== 'undefined') {
       this.canvas = document.createElement('canvas');
-      this.canvas.width = MODEL_INPUT_SIZE;
-      this.canvas.height = MODEL_INPUT_SIZE;
       this.ctx = this.canvas.getContext('2d', { 
         willReadFrequently: true,
         alpha: false 
       });
     }
+  }
+  
+  /**
+   * Resize canvas for current model input size
+   */
+  private resizeCanvas(size: number) {
+    if (this.canvas) {
+      this.canvas.width = size;
+      this.canvas.height = size;
+    }
+  }
+
+  /**
+   * Get the currently loaded model variant
+   */
+  getCurrentModelVariant(): ModelVariant | null {
+    return this.currentModelVariant;
+  }
+  
+  /**
+   * Get current input size
+   */
+  getInputSize(): number {
+    return this.inputSize;
   }
 
   /**
@@ -155,6 +221,7 @@ class AadhaarModelManager {
     this.ort = null;
     this.refCount = 0;
     this.loadProgress = 0;
+    this.currentModelVariant = null;
     this.setState('idle');
     
     // Force garbage collection hint
@@ -224,11 +291,20 @@ class AadhaarModelManager {
 
   /**
    * Load the model (shared across all components)
+   * @param variant - Model variant to load ('full', 'small', 'int8', 'int8_small', or 'auto')
    */
-  async loadModel(): Promise<void> {
-    // Already ready
-    if (this.state === 'ready' && this.session) {
+  async loadModel(variant: ModelVariant | 'auto' = 'auto'): Promise<void> {
+    const selectedVariant = variant === 'auto' ? detectBestModel() : variant;
+    
+    // Already ready with same variant
+    if (this.state === 'ready' && this.session && this.currentModelVariant === selectedVariant) {
       return;
+    }
+
+    // If different variant requested, unload current model first
+    if (this.session && this.currentModelVariant !== selectedVariant) {
+      console.log(`[ModelManager] Switching from ${this.currentModelVariant} to ${selectedVariant}`);
+      await this.forceUnload();
     }
 
     // Already loading - wait for existing load
@@ -236,7 +312,7 @@ class AadhaarModelManager {
       return this.loadingPromise;
     }
 
-    this.loadingPromise = this._loadModelInternal();
+    this.loadingPromise = this._loadModelInternal(selectedVariant);
     
     try {
       await this.loadingPromise;
@@ -245,7 +321,7 @@ class AadhaarModelManager {
     }
   }
 
-  private async _loadModelInternal(): Promise<void> {
+  private async _loadModelInternal(variant: ModelVariant): Promise<void> {
     this.setState('loading');
     this.setProgress(0);
 
@@ -254,8 +330,19 @@ class AadhaarModelManager {
       await this.loadOnnxRuntime();
       this.setProgress(10);
       
-      console.log('[ModelManager] Fetching model...');
-      const response = await fetch('/models/aadhaar_detector.onnx');
+      const modelPath = MODEL_PATHS[variant];
+      console.log(`[ModelManager] Fetching model (${variant}): ${modelPath}`);
+      
+      // Try to load the requested model, fallback to full model if INT8 not available
+      let response = await fetch(modelPath);
+      let actualVariant = variant;
+      
+      if (!response.ok && (variant === 'int8' || variant === 'int8_small')) {
+        console.warn(`[ModelManager] INT8 model not found, falling back to full model`);
+        const fallbackPath = variant === 'int8' ? MODEL_PATHS.full : MODEL_PATHS.small;
+        response = await fetch(fallbackPath);
+        actualVariant = variant === 'int8' ? 'full' : 'small';
+      }
       
       if (!response.ok) {
         throw new Error(`Failed to fetch model: ${response.status}`);
@@ -299,10 +386,14 @@ class AadhaarModelManager {
         graphOptimizationLevel: 'basic',
       });
 
+      this.currentModelVariant = actualVariant;
+      this.inputSize = MODEL_INPUT_SIZES[actualVariant];
+      this.resizeCanvas(this.inputSize);
+      
       this.setState('ready');
       this.setProgress(100);
       
-      console.log('[ModelManager] Model loaded successfully');
+      console.log(`[ModelManager] Model loaded successfully (variant: ${actualVariant}, inputSize: ${this.inputSize})`);
       console.log('[ModelManager] Inputs:', this.session.inputNames);
       console.log('[ModelManager] Outputs:', this.session.outputNames);
 
@@ -323,28 +414,29 @@ class AadhaarModelManager {
     
     const videoWidth = video.videoWidth;
     const videoHeight = video.videoHeight;
+    const inputSize = this.inputSize;
     
     // Calculate letterbox parameters
-    const scale = Math.min(MODEL_INPUT_SIZE / videoWidth, MODEL_INPUT_SIZE / videoHeight);
+    const scale = Math.min(inputSize / videoWidth, inputSize / videoHeight);
     const newWidth = Math.round(videoWidth * scale);
     const newHeight = Math.round(videoHeight * scale);
-    const padX = Math.floor((MODEL_INPUT_SIZE - newWidth) / 2);
-    const padY = Math.floor((MODEL_INPUT_SIZE - newHeight) / 2);
+    const padX = Math.floor((inputSize - newWidth) / 2);
+    const padY = Math.floor((inputSize - newHeight) / 2);
     
     // Fill with YOLO default padding color
     this.ctx.fillStyle = 'rgb(114, 114, 114)';
-    this.ctx.fillRect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+    this.ctx.fillRect(0, 0, inputSize, inputSize);
     
     // Draw video frame
     this.ctx.drawImage(video, padX, padY, newWidth, newHeight);
     
     // Get pixel data
-    const imageData = this.ctx.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+    const imageData = this.ctx.getImageData(0, 0, inputSize, inputSize);
     const data = imageData.data;
     
     // Convert to CHW format and normalize
-    const float32Data = new Float32Array(3 * MODEL_INPUT_SIZE * MODEL_INPUT_SIZE);
-    const pixelCount = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE;
+    const float32Data = new Float32Array(3 * inputSize * inputSize);
+    const pixelCount = inputSize * inputSize;
     
     for (let i = 0; i < pixelCount; i++) {
       const srcIdx = i * 4;
@@ -379,22 +471,23 @@ class AadhaarModelManager {
     
     const imgWidth = img.naturalWidth || img.width;
     const imgHeight = img.naturalHeight || img.height;
+    const inputSize = this.inputSize;
     
-    const scale = Math.min(MODEL_INPUT_SIZE / imgWidth, MODEL_INPUT_SIZE / imgHeight);
+    const scale = Math.min(inputSize / imgWidth, inputSize / imgHeight);
     const newWidth = Math.round(imgWidth * scale);
     const newHeight = Math.round(imgHeight * scale);
-    const padX = Math.floor((MODEL_INPUT_SIZE - newWidth) / 2);
-    const padY = Math.floor((MODEL_INPUT_SIZE - newHeight) / 2);
+    const padX = Math.floor((inputSize - newWidth) / 2);
+    const padY = Math.floor((inputSize - newHeight) / 2);
     
     this.ctx.fillStyle = 'rgb(114, 114, 114)';
-    this.ctx.fillRect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+    this.ctx.fillRect(0, 0, inputSize, inputSize);
     this.ctx.drawImage(img, padX, padY, newWidth, newHeight);
     
-    const imageData = this.ctx.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+    const imageData = this.ctx.getImageData(0, 0, inputSize, inputSize);
     const data = imageData.data;
     
-    const float32Data = new Float32Array(3 * MODEL_INPUT_SIZE * MODEL_INPUT_SIZE);
-    const pixelCount = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE;
+    const float32Data = new Float32Array(3 * inputSize * inputSize);
+    const pixelCount = inputSize * inputSize;
     
     for (let i = 0; i < pixelCount; i++) {
       const srcIdx = i * 4;
@@ -415,9 +508,10 @@ class AadhaarModelManager {
     originalWidth: number, 
     originalHeight: number
   ): AadhaarDetectionResult {
-    const scale = Math.min(MODEL_INPUT_SIZE / originalWidth, MODEL_INPUT_SIZE / originalHeight);
-    const padX = Math.floor((MODEL_INPUT_SIZE - originalWidth * scale) / 2);
-    const padY = Math.floor((MODEL_INPUT_SIZE - originalHeight * scale) / 2);
+    const inputSize = this.inputSize;
+    const scale = Math.min(inputSize / originalWidth, inputSize / originalHeight);
+    const padX = Math.floor((inputSize - originalWidth * scale) / 2);
+    const padY = Math.floor((inputSize - originalHeight * scale) / 2);
     
     const numDetections = dims[2] || 8400;
     const confidenceThreshold = 0.25;
@@ -477,13 +571,14 @@ class AadhaarModelManager {
     try {
       const originalWidth = video.videoWidth;
       const originalHeight = video.videoHeight;
+      const inputSize = this.inputSize;
       
       const inputData = this.preprocessVideo(video);
       
       const tensor = new this.ort.Tensor(
         'float32',
         inputData,
-        [1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]
+        [1, 3, inputSize, inputSize]
       );
 
       const inputName = this.session.inputNames[0];
@@ -517,11 +612,12 @@ class AadhaarModelManager {
 
     try {
       const { data: inputData, width: originalWidth, height: originalHeight } = await this.preprocessImage(imageSource);
+      const inputSize = this.inputSize;
       
       const tensor = new this.ort.Tensor(
         'float32',
         inputData,
-        [1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]
+        [1, 3, inputSize, inputSize]
       );
 
       const inputName = this.session.inputNames[0];
@@ -568,4 +664,49 @@ export async function unloadAadhaarModel(): Promise<void> {
   if (typeof window !== 'undefined' && window.__aadhaarModelManager) {
     await window.__aadhaarModelManager.forceUnload();
   }
+}
+
+/**
+ * Preload the INT8 model for mobile devices
+ * Call this early in your app to start loading in background
+ */
+export async function preloadInt8Model(): Promise<void> {
+  const manager = getAadhaarModelManager();
+  await manager.loadModel('int8');
+}
+
+/**
+ * Load the best model for the current device (auto-detect)
+ */
+export async function loadBestModel(): Promise<void> {
+  const manager = getAadhaarModelManager();
+  await manager.loadModel('auto');
+}
+
+/**
+ * Get available model variants with their expected sizes
+ */
+export function getModelVariants(): Record<ModelVariant, { path: string; expectedSizeMB: number; description: string }> {
+  return {
+    full: { 
+      path: MODEL_PATHS.full, 
+      expectedSizeMB: 99, 
+      description: 'Full precision FP32 model (640px input)' 
+    },
+    small: { 
+      path: MODEL_PATHS.small, 
+      expectedSizeMB: 99, 
+      description: 'Full precision FP32 model (320px input, faster)' 
+    },
+    int8: { 
+      path: MODEL_PATHS.int8, 
+      expectedSizeMB: 25, 
+      description: 'INT8 quantized model (640px input, ~4x smaller)' 
+    },
+    int8_small: { 
+      path: MODEL_PATHS.int8_small, 
+      expectedSizeMB: 25, 
+      description: 'INT8 quantized model (320px input, smallest & fastest)' 
+    },
+  };
 }

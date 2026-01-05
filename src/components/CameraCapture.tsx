@@ -119,12 +119,25 @@ export default function CameraCapture({
   useEffect(() => {
     if (isSelfie || !isModelReady || !isStreaming || preview) return;
 
-    // Start detection loop with optimized interval (750ms instead of 500ms to reduce CPU/memory)
+    let isDetecting = false;
+    let lastDetectionTime = 0;
+    const DETECTION_INTERVAL = 400; // ms between detections (reduced for faster response)
+    const THROTTLE_ON_DETECT = 800; // Slow down after detection to save CPU
+    
+    // Start detection loop with requestAnimationFrame for smoother performance
     const runDetection = async () => {
-      if (!videoRef.current || !isStreaming) return;
+      if (!videoRef.current || !isStreaming || isDetecting) return;
       
       // Skip detection if page is not visible (tab in background)
       if (document.hidden) return;
+      
+      const now = performance.now();
+      const interval = lastDetection?.detected ? THROTTLE_ON_DETECT : DETECTION_INTERVAL;
+      
+      if (now - lastDetectionTime < interval) return;
+      
+      isDetecting = true;
+      lastDetectionTime = now;
       
       try {
         const result = await detectAadhaar(videoRef.current);
@@ -142,11 +155,13 @@ export default function CameraCapture({
         }
       } catch (err) {
         console.error('[AadhaarDetection] Error:', err);
+      } finally {
+        isDetecting = false;
       }
     };
 
-    // Run detection every 750ms (increased from 500ms for better performance)
-    aadhaarDetectionRef.current = setInterval(runDetection, 750);
+    // Use setInterval with shorter interval, but actual detection is throttled
+    aadhaarDetectionRef.current = setInterval(runDetection, 200);
 
     return () => {
       if (aadhaarDetectionRef.current) {
