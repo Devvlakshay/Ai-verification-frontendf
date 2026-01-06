@@ -40,7 +40,7 @@ export default function CameraCapture({
 
   // --- State ---
   const [isStreaming, setIsStreaming] = useState(false);
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>(isSelfie ? 'user' : 'environment');
   const [preview, setPreview] = useState<string | null>(initialImage);
   const [error, setError] = useState<string | null>(null);
   
@@ -437,18 +437,44 @@ export default function CameraCapture({
     }
   }, [countdown, isSelfie, isStreaming, captureImage]);
 
+  // --- UI Helpers ---
+  const isAligned = alignmentStatus === 'ALIGNED';
+  const isCardDetected = cardDetectionStatus === 'DETECTED' || (lastDetection?.detected && (!expectedCardSide || lastDetection.cardType === expectedCardSide));
+
+  // Auto-capture logic for Aadhaar detection
+  useEffect(() => {
+    if (isSelfie) return; // Skip for selfie mode
+    
+    let timer: NodeJS.Timeout;
+    if (isCardDetected && !preview && isStreaming) {
+      timer = setInterval(() => {
+        setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    } else if (!isCardDetected) {
+      setCountdown(3);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isCardDetected, preview, isStreaming, isSelfie]);
+
+  // Capture when countdown reaches 0 for Aadhaar detection
+  useEffect(() => {
+    if (!isSelfie && countdown === 0 && isCardDetected && !preview && isStreaming) {
+      captureImage();
+    }
+  }, [countdown, isCardDetected, preview, isStreaming, isSelfie, captureImage]);
+
   const retake = () => {
     setPreview(null);
     setLastDetection(null);
     setCardDetectionStatus('LOADING');
+    setCountdown(3);
     onCapture('');
     // startCamera is called by useEffect
   };
 
-  // --- UI Helpers ---
-  const isAligned = alignmentStatus === 'ALIGNED';
-  const isCardDetected = cardDetectionStatus === 'DETECTED' || (lastDetection?.detected && (!expectedCardSide || lastDetection.cardType === expectedCardSide));
-  
   // Dynamic styles for the oval
   const getSelfieOverlayStyles = () => {
     if (!isSelfie) return 'hidden';
@@ -632,21 +658,15 @@ export default function CameraCapture({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 sm:gap-4">
-            <div className="flex gap-3 sm:gap-4">
-               {/* Switch Camera Button - Only show for non-selfie */}
-               {!isSelfie && (
-                 <button 
-                  onClick={() => {
-                    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
-                  }}
-                  className="p-2.5 sm:p-3 bg-royal-purple/50 text-white rounded-full hover:bg-royal-purple active:scale-95 transition-transform"
-                  title="Switch Camera"
-                >
-                  <RefreshCw size={18} className="sm:w-5 sm:h-5" />
-                </button>
-               )}
+            <div className="relative flex items-center gap-3 sm:gap-4">
+              {/* Auto-capture countdown overlay for Aadhaar detection */}
+              {isCardDetected && countdown > 0 && (
+                <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+                  <span className="text-6xl sm:text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
+                </div>
+              )}
 
-              {/* Capture Button - Only show for non-selfie */}
+              {/* Manual Capture Button for non-selfie (front/back) */}
               {!isSelfie && (
                 <button 
                   onClick={() => captureImage()}

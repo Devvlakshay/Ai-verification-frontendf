@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Cropper, { Area, Point } from 'react-easy-crop';
 import { 
@@ -115,6 +115,48 @@ const getRotatedBoundingBox = (width: number, height: number, rotation: number) 
   };
 };
 
+// Helper to resize image for better cropper performance
+const resizeImageForCropper = (imageSrc: string, maxSize: number = 1200): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      // If image is already small enough, return as-is
+      if (img.width <= maxSize && img.height <= maxSize) {
+        resolve(imageSrc);
+        return;
+      }
+      
+      // Calculate new dimensions
+      let newWidth = img.width;
+      let newHeight = img.height;
+      
+      if (newWidth > newHeight) {
+        newHeight = Math.round((newHeight / newWidth) * maxSize);
+        newWidth = maxSize;
+      } else {
+        newWidth = Math.round((newWidth / newHeight) * maxSize);
+        newHeight = maxSize;
+      }
+      
+      // Create canvas and resize
+      const canvas = document.createElement('canvas');
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas context not available'));
+        return;
+      }
+      
+      ctx.drawImage(img, 0, 0, newWidth, newHeight);
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = imageSrc;
+  });
+};
+
 export default function FileUpload({ onUpload, label, expectedCardSide }: Props) {
   // States
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -130,12 +172,10 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
   // Aadhaar detection hook
   const { isModelReady, detectImage, loadModel } = useAadhaarDetection();
   
-  // Load model on mount
-  const modelLoadedRef = useRef(false);
-  if (!modelLoadedRef.current) {
-    modelLoadedRef.current = true;
+  // Load model on mount - using useEffect to avoid setState during render
+  useEffect(() => {
     loadModel();
-  }
+  }, [loadModel]);
 
   // Dropzone configuration
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -158,13 +198,20 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
 
       // Read file as base64
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const result = e.target?.result as string;
-        setSelectedImage(result);
-        setRotation(0);
-        setZoom(1);
-        setCrop({ x: 0, y: 0 });
-        setDetectionResult(null);
+        try {
+          // Resize image for smoother cropping experience
+          const resizedImage = await resizeImageForCropper(result, 1200);
+          setSelectedImage(resizedImage);
+          setRotation(0);
+          setZoom(1);
+          setCrop({ x: 0, y: 0 });
+          setDetectionResult(null);
+        } catch (resizeErr) {
+          console.warn('[FileUpload] Resize failed, using original:', resizeErr);
+          setSelectedImage(result);
+        }
         setIsProcessing(false);
       };
       reader.onerror = () => {
@@ -178,14 +225,24 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
     }
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png', '.webp', '.heic', '.heif']
     },
     maxFiles: 1,
-    disabled: isProcessing || isDetecting
+    disabled: isProcessing || isDetecting,
+    // Prevent opening file dialog on click - we'll control this manually
+    noClick: false,
+    noKeyboard: false,
   });
+  
+  // Custom input props that explicitly prevent camera capture on mobile
+  const customInputProps = {
+    ...getInputProps(),
+    // Explicitly remove capture attribute to force gallery on mobile
+    capture: undefined,
+  };
 
   // Handle crop complete
   const onCropComplete = useCallback((croppedArea: Area, croppedAreaPixels: Area) => {
@@ -442,40 +499,35 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
         {...getRootProps()}
         className={cn(
           "relative cursor-pointer transition-all duration-200",
-          "flex flex-col items-center justify-center",
-          "px-4 py-3 sm:px-6 sm:py-4",
-          "border-2 border-dashed rounded-xl",
+          "flex items-center justify-center gap-2 mx-auto", // Added mx-auto to center the box
+          "px-2 py-1",
+          "border border-dashed rounded-md",
           "bg-white/5 hover:bg-white/10",
           isDragActive 
-            ? "border-lavender bg-lavender/10 scale-[1.02]" 
-            : "border-white/20 hover:border-lavender/50",
-          (isProcessing || isDetecting) && "opacity-50 pointer-events-none"
+            ? "border-lavender bg-lavender/10" 
+            : "border-white/30 hover:border-lavender/50",
+          (isProcessing || isDetecting) && "opacity-50 pointer-events-none",
+          "w-48" // Set fixed width to make the box smaller
         )}
       >
-        <input {...getInputProps()} />
+        {/* Custom input that explicitly prevents camera capture on mobile */}
+        <input {...customInputProps} />
         
         {isProcessing ? (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-lavender animate-spin" />
-            <p className="text-white/70 text-xs sm:text-sm">Loading image...</p>
-          </div>
+          <>
+            <Loader2 className="w-4 h-4 text-lavender animate-spin" />
+            <p className="text-white/70 text-xs">Loading...</p>
+          </>
         ) : isDragActive ? (
-          <div className="flex flex-col items-center gap-2">
-            <Upload className="w-6 h-6 sm:w-8 sm:h-8 text-lavender animate-bounce" />
-            <p className="text-lavender text-xs sm:text-sm font-medium">Drop image here</p>
-          </div>
+          <>
+            <Upload className="w-4 h-4 text-lavender" />
+            <p className="text-lavender text-xs font-medium">Drop here</p>
+          </>
         ) : (
-          <div className="flex flex-col items-center gap-2">
-            <div className="p-2 sm:p-3 bg-lavender/20 rounded-full">
-              <ImagePlus className="w-5 h-5 sm:w-6 sm:h-6 text-lavender" />
-            </div>
-            <div className="text-center">
-              <p className="text-white text-xs sm:text-sm font-medium">{label}</p>
-              <p className="text-white/50 text-[10px] sm:text-xs mt-0.5">
-                Tap to select or drag & drop
-              </p>
-            </div>
-          </div>
+          <>
+            <ImagePlus className="w-4 h-4 text-lavender" />
+            <p className="text-white/80 text-xs font-medium">{label}</p>
+          </>
         )}
       </div>
     </div>
