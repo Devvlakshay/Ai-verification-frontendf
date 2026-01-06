@@ -32,6 +32,45 @@ function FrontPageContent() {
     setHasImage(!!data.passport_first);
   }, [data.passport_first]);
 
+  // Save Aadhaar image to disk
+  const saveAadhaarImage = async (image: string, side: 'front' | 'back') => {
+    const userId = data.user_id || searchParams.get('user_id');
+    
+    if (!userId) {
+      console.warn(`⚠️ Cannot save Aadhaar ${side} - no user_id available`);
+      return;
+    }
+    
+    if (!image) {
+      console.warn(`⚠️ Cannot save Aadhaar ${side} - no image provided`);
+      return;
+    }
+    
+    console.log(`📤 Saving Aadhaar ${side} for user: ${userId}`);
+    
+    try {
+      const response = await fetch('/api/save-aadhaar-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          image,
+          side
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log(`✅ Aadhaar ${side} image saved:`, result.path);
+      } else {
+        const error = await response.json();
+        console.error(`❌ Failed to save Aadhaar ${side} image:`, error);
+      }
+    } catch (err) {
+      console.error(`❌ Error saving Aadhaar ${side} image:`, err);
+    }
+  };
+
   useEffect(() => {
     // Persist user details from URL params into the store
     const userId = searchParams.get('user_id');
@@ -51,6 +90,11 @@ function FrontPageContent() {
     setHasImage(!!img);
     setValidationError(null);
     
+    // Save image to disk
+    if (img) {
+      saveAadhaarImage(img, 'front');
+    }
+    
     if (detection) {
       setFrontDetection(detection);
       updateField('front_detection', detection);
@@ -67,6 +111,25 @@ function FrontPageContent() {
     setHasImage(true);
     setValidationError(null);
     setIsDetecting(true);
+    
+    // Save image to disk
+    const userId = data.user_id || searchParams.get('user_id');
+    if (userId) {
+      try {
+        const response = await fetch('/api/save-aadhaar-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, image: img, side: 'front' })
+        });
+        if (response.ok) {
+          console.log('✅ Aadhaar front image saved to disk');
+        }
+      } catch (err) {
+        console.error('❌ Error saving Aadhaar front image:', err);
+      }
+    } else {
+      console.warn('⚠️ Cannot save Aadhaar front - no user_id available');
+    }
 
     try {
       // Wait for model to be ready if not already
