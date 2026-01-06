@@ -90,25 +90,11 @@ const MODEL_PATHS: Record<ModelVariant, string> = {
 };
 
 // Auto-detect best model for device
+// Always use int8 (640px) for better accuracy - the 320px model has lower detection quality
 function detectBestModel(): ModelVariant {
-  if (typeof window === 'undefined') return 'int8_small';
-  
-  // Check if mobile device
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent
-  );
-  
-  // Check device memory (if available)
-  const deviceMemory = (navigator as any).deviceMemory || 4;
-  
-  // Use int8_small for all devices by default (fastest: 42 FPS vs 14 FPS)
-  // This provides real-time detection with minimal lag
-  if (isMobile || deviceMemory < 8) {
-    return 'int8_small';  // 320px input, ~25MB, 42 FPS
-  }
-  
-  // Only use larger model on high-end desktop with lots of memory
-  return 'int8';  // 640px input, ~25MB, 14 FPS
+  // Always use int8 (640px) model for accurate detection
+  // The int8_small (320px) model has lower accuracy and causes misclassifications
+  return 'int8';
 }
 
 class AadhaarModelManager {
@@ -333,19 +319,12 @@ class AadhaarModelManager {
       const modelPath = MODEL_PATHS[variant];
       console.log(`[ModelManager] Fetching model (${variant}): ${modelPath}`);
       
-      // Try to load the requested model, fallback to full model if INT8 not available
-      let response = await fetch(modelPath);
-      let actualVariant = variant;
-      
-      if (!response.ok && (variant === 'int8' || variant === 'int8_small')) {
-        console.warn(`[ModelManager] INT8 model not found, falling back to full model`);
-        const fallbackPath = variant === 'int8' ? MODEL_PATHS.full : MODEL_PATHS.small;
-        response = await fetch(fallbackPath);
-        actualVariant = variant === 'int8' ? 'full' : 'small';
-      }
+      // Load the INT8 model only - no fallback to FP32 models
+      const response = await fetch(modelPath);
+      const actualVariant = variant;
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch model: ${response.status}`);
+        throw new Error(`Failed to fetch model (${variant}): ${response.status}. Make sure the model file exists at ${modelPath}`);
       }
 
       const contentLength = response.headers.get('content-length');
@@ -501,12 +480,14 @@ class AadhaarModelManager {
 
   /**
    * Parse YOLO output to find best detection
+   * @param isVideo - Use lower threshold for video (more noise/blur)
    */
   private parseOutput(
     outputData: Float32Array, 
     dims: number[], 
     originalWidth: number, 
-    originalHeight: number
+    originalHeight: number,
+    isVideo: boolean = false
   ): AadhaarDetectionResult {
     const inputSize = this.inputSize;
     const scale = Math.min(inputSize / originalWidth, inputSize / originalHeight);
@@ -514,7 +495,9 @@ class AadhaarModelManager {
     const padY = Math.floor((inputSize - originalHeight * scale) / 2);
     
     const numDetections = dims[2] || 8400;
-    const confidenceThreshold = 0.25;
+    // Lower threshold for video (0.15) vs image (0.25)
+    // Video has motion blur and lower quality frames
+    const confidenceThreshold = isVideo ? 0.15 : 0.25;
     
     let bestDetection: AadhaarDetectionResult = {
       detected: false,
@@ -588,7 +571,7 @@ class AadhaarModelManager {
       const output = results[outputName];
       const outputData = output.data as Float32Array;
       
-      const result = this.parseOutput(outputData, output.dims, originalWidth, originalHeight);
+      const result = this.parseOutput(outputData, output.dims, originalWidth, originalHeight, true);
       
       // Dispose tensors to free memory
       if (tensor.dispose) tensor.dispose();
@@ -627,7 +610,7 @@ class AadhaarModelManager {
       const output = results[outputName];
       const outputData = output.data as Float32Array;
       
-      const result = this.parseOutput(outputData, output.dims, originalWidth, originalHeight);
+      const result = this.parseOutput(outputData, output.dims, originalWidth, originalHeight, false);
       
       // Dispose tensors to free memory
       if (tensor.dispose) tensor.dispose();

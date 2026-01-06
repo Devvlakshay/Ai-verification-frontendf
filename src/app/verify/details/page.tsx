@@ -49,7 +49,7 @@ export default function DetailsPage() {
 
         <div>
           <label className="block text-xs sm:text-sm font-medium text-white/80 mb-1">Gender</label>
-          <select 
+          <select
             value={data.gender} 
             onChange={(e) => updateField('gender', e.target.value)}
             className="w-full p-2.5 sm:p-3 border border-lavender/30 bg-deep-violet rounded-lg focus:ring-2 focus:ring-lavender outline-none text-white text-sm sm:text-base"
