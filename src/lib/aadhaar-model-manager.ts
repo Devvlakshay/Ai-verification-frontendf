@@ -90,10 +90,20 @@ const MODEL_PATHS: Record<ModelVariant, string> = {
 };
 
 // Auto-detect best model for device
-// Always use int8 (640px) for better accuracy - the 320px model has lower detection quality
+// Use int8_small for mobile devices to improve performance
 function detectBestModel(): ModelVariant {
-  // Always use int8 (640px) model for accurate detection
-  // The int8_small (320px) model has lower accuracy and causes misclassifications
+  if (typeof window === 'undefined') return 'int8';
+  
+  // Check if mobile device
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isLowMemory = (navigator as any).deviceMemory && (navigator as any).deviceMemory < 4;
+  
+  // Use smaller model for mobile or low memory devices for better performance
+  if (isMobile || isLowMemory) {
+    console.log('[ModelManager] Mobile device detected, using int8_small for better performance');
+    return 'int8_small';
+  }
+  
   return 'int8';
 }
 
@@ -101,7 +111,7 @@ class AadhaarModelManager {
   private session: OrtInferenceSession | null = null;
   private ort: OrtModule | null = null;
   private state: ModelState = 'idle';
-  private loadProgress = 0;
+  private loadProgress = 0; 
   private refCount = 0;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
@@ -243,8 +253,7 @@ class AadhaarModelManager {
       if (existingScript) {
         existingScript.addEventListener('load', () => {
           if (window.ort) {
-            window.ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
-            window.ort.env.wasm.numThreads = 1;
+            this.configureOrt(window.ort);
             this.ort = window.ort;
             resolve(this.ort);
           } else {
@@ -260,8 +269,7 @@ class AadhaarModelManager {
       
       script.onload = () => {
         if (window.ort) {
-          window.ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
-          window.ort.env.wasm.numThreads = 1;
+          this.configureOrt(window.ort);
           this.ort = window.ort;
           console.log('[ModelManager] ONNX Runtime loaded from CDN');
           resolve(this.ort);
@@ -273,6 +281,25 @@ class AadhaarModelManager {
       script.onerror = () => reject(new Error('Failed to load ONNX Runtime'));
       document.head.appendChild(script);
     });
+  }
+
+  /**
+   * Configure ONNX Runtime for cross-platform compatibility (especially iOS)
+   */
+  private configureOrt(ort: OrtModule): void {
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
+    
+    // iOS Safari has issues with multi-threading and SIMD
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    
+    if (isIOS || isSafari) {
+      console.log('[ModelManager] iOS/Safari detected, using single thread');
+      ort.env.wasm.numThreads = 1;
+      ort.env.wasm.proxy = false;
+    } else {
+      ort.env.wasm.numThreads = 1; // Keep single thread for stability
+    }
   }
 
   /**
@@ -385,6 +412,7 @@ class AadhaarModelManager {
 
   /**
    * Preprocess video frame for inference
+   * Optimized: Uses downscaled video for faster mobile performance
    */
   private preprocessVideo(video: HTMLVideoElement): Float32Array {
     if (!this.canvas || !this.ctx) {
@@ -395,10 +423,17 @@ class AadhaarModelManager {
     const videoHeight = video.videoHeight;
     const inputSize = this.inputSize;
     
-    // Calculate letterbox parameters
-    const scale = Math.min(inputSize / videoWidth, inputSize / videoHeight);
-    const newWidth = Math.round(videoWidth * scale);
-    const newHeight = Math.round(videoHeight * scale);
+    // For real-time video, use a smaller intermediate canvas for better performance
+    // This reduces the amount of pixel data we need to process
+    const maxVideoSize = Math.min(inputSize, 480); // Cap at 480px for video
+    const videoScale = Math.min(maxVideoSize / videoWidth, maxVideoSize / videoHeight);
+    const scaledWidth = Math.round(videoWidth * videoScale);
+    const scaledHeight = Math.round(videoHeight * videoScale);
+    
+    // Calculate letterbox parameters for the model input
+    const scale = Math.min(inputSize / scaledWidth, inputSize / scaledHeight);
+    const newWidth = Math.round(scaledWidth * scale);
+    const newHeight = Math.round(scaledHeight * scale);
     const padX = Math.floor((inputSize - newWidth) / 2);
     const padY = Math.floor((inputSize - newHeight) / 2);
     
@@ -406,8 +441,8 @@ class AadhaarModelManager {
     this.ctx.fillStyle = 'rgb(114, 114, 114)';
     this.ctx.fillRect(0, 0, inputSize, inputSize);
     
-    // Draw video frame
-    this.ctx.drawImage(video, padX, padY, newWidth, newHeight);
+    // Draw video frame with scaling
+    this.ctx.drawImage(video, 0, 0, videoWidth, videoHeight, padX, padY, newWidth, newHeight);
     
     // Get pixel data
     const imageData = this.ctx.getImageData(0, 0, inputSize, inputSize);

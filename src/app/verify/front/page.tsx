@@ -16,56 +16,15 @@ function FrontPageContent() {
   const [frontDetection, setFrontDetection] = useState<AadhaarDetectionResult | null>(
     data.front_detection as AadhaarDetectionResult | null
   );
+  const [isDetecting, setIsDetecting] = useState(false);
   
-  // Background detection state
-  const [isBackgroundDetecting, setIsBackgroundDetecting] = useState(false);
-  
-  // Detection hook for background detection (gallery uploads)
+  // Edge detection hook
   const { isModelReady, loadModel, detectImage } = useAadhaarDetection();
 
   // Update hasImage state when data.passport_first changes
   useEffect(() => {
     setHasImage(!!data.passport_first);
   }, [data.passport_first]);
-
-  // Save Aadhaar image to disk
-  const saveAadhaarImage = async (image: string, side: 'front' | 'back') => {
-    const userId = data.user_id || searchParams.get('user_id');
-    
-    if (!userId) {
-      console.warn(`⚠️ Cannot save Aadhaar ${side} - no user_id available`);
-      return;
-    }
-    
-    if (!image) {
-      console.warn(`⚠️ Cannot save Aadhaar ${side} - no image provided`);
-      return;
-    }
-    
-    console.log(`📤 Saving Aadhaar ${side} for user: ${userId}`);
-    
-    try {
-      const response = await fetch('/api/save-aadhaar-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          image,
-          side
-        })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        console.log(`✅ Aadhaar ${side} image saved:`, result.path);
-      } else {
-        const error = await response.json();
-        console.error(`❌ Failed to save Aadhaar ${side} image:`, error);
-      }
-    } catch (err) {
-      console.error(`❌ Error saving Aadhaar ${side} image:`, err);
-    }
-  };
 
   useEffect(() => {
     // Persist user details from URL params into the store
@@ -86,35 +45,25 @@ function FrontPageContent() {
     setHasImage(!!img);
     setValidationError(null);
     
-    // Store detection result from camera capture (real-time detection)
+    // Store detection result from camera or gallery (edge detection)
     if (detection) {
       setFrontDetection(detection);
       updateField('front_detection', detection);
     } else if (img) {
-      // No detection provided = gallery upload
-      // Clear existing detection and start background detection
-      setFrontDetection(null);
-      updateField('front_detection', null);
-      
-      // Start background detection for gallery uploads
-      runBackgroundDetection(img);
+      // No detection provided - run edge detection
+      runEdgeDetection(img);
     } else {
       setFrontDetection(null);
       updateField('front_detection', null);
     }
-    
-    // Save image to disk
-    if (img) {
-      saveAadhaarImage(img, 'front');
-    }
   };
   
-  // Background detection for gallery uploads
-  const runBackgroundDetection = useCallback(async (imageData: string) => {
+  // Edge detection for images without detection (fallback)
+  const runEdgeDetection = useCallback(async (imageData: string) => {
     if (!imageData) return;
     
-    setIsBackgroundDetecting(true);
-    console.log('🔄 Starting background detection for front card...');
+    setIsDetecting(true);
+    console.log('🔄 Running edge detection for front card...');
     
     try {
       // Load model if not ready
@@ -124,29 +73,31 @@ function FrontPageContent() {
       
       // Run detection
       const result = await detectImage(imageData);
-      console.log('✅ Background detection complete:', result);
+      console.log('✅ Edge detection complete:', result);
       
       // Update state with result
       setFrontDetection(result);
       updateField('front_detection', result);
     } catch (err) {
-      console.error('❌ Background detection failed:', err);
+      console.error('❌ Edge detection failed:', err);
     } finally {
-      setIsBackgroundDetecting(false);
+      setIsDetecting(false);
     }
   }, [isModelReady, loadModel, detectImage, updateField]);
-
-  // Check if front card is properly detected
+  
+  // Check if front card is properly detected (only for camera captures)
   const isFrontCardValid = frontDetection?.detected && frontDetection?.cardType === 'front';
 
-  const handleNext = () => {
+  const handleNext = async () => {
     // Validate image exists
     if (!hasImage || !data.passport_first) {
       setValidationError('Please capture or upload the front side of your Aadhaar card.');
       return;
     }
 
-    console.log('✅ Front card captured, navigating to back page');
+    console.log('✅ Front card captured, proceeding to back page (verification happens after both images)');
+    // No frontend verification - just navigate to back page
+    // Backend verification will happen after both front and back images are captured
     router.push('/verify/back');
   };
   
@@ -166,18 +117,18 @@ function FrontPageContent() {
       )}
 
       {/* Detection Status */}
-      {hasImage && (isBackgroundDetecting || frontDetection) && (
+      {hasImage && (isDetecting || frontDetection) && (
         <div className={`mx-4 mt-2 p-3 rounded-xl flex items-center gap-2 ${
-          isBackgroundDetecting 
+          isDetecting
             ? 'bg-blue-500/20 border border-blue-500/50'
             : isFrontCardValid 
               ? 'bg-green-500/20 border border-green-500/50' 
               : 'bg-yellow-500/20 border border-yellow-500/50'
         }`}>
-          {isBackgroundDetecting ? (
+          {isDetecting ? (
             <>
               <Loader2 className="w-5 h-5 text-blue-400 flex-shrink-0 animate-spin" />
-              <p className="text-blue-300 text-sm">Analyzing card in background...</p>
+              <p className="text-blue-300 text-sm">Detecting card on device...</p>
             </>
           ) : isFrontCardValid ? (
             <>

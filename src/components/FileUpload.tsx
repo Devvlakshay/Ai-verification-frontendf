@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Cropper, { Area, Point } from 'react-easy-crop';
 import { 
@@ -16,12 +16,18 @@ import {
   Upload
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAadhaarDetection, AadhaarDetectionResult } from '@/hooks/useAadhaarDetection';
 
 interface Props {
   onUpload: (base64: string, detection?: AadhaarDetectionResult) => void;
   label: string;
   expectedCardSide?: 'front' | 'back';
+}
+
+// Temporary type for AadhaarDetectionResult (not needed for detection, but kept for interface compatibility)
+interface AadhaarDetectionResult {
+  detected: boolean;
+  cardType: 'front' | 'back' | 'print' | null;
+  confidence: number;
 }
 
 // Helper function to create cropped image
@@ -167,15 +173,6 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [detectionResult, setDetectionResult] = useState<AadhaarDetectionResult | null>(null);
-  
-  // Aadhaar detection hook
-  const { isModelReady, detectImage, loadModel } = useAadhaarDetection();
-  
-  // Load model on mount - using useEffect to avoid setState during render
-  useEffect(() => {
-    loadModel();
-  }, [loadModel]);
 
   // Dropzone configuration
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -203,19 +200,26 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
         try {
           // Resize image for smoother cropping experience
           const resizedImage = await resizeImageForCropper(result, 1200);
-          setSelectedImage(resizedImage);
-          setRotation(0);
-          setZoom(1);
-          setCrop({ x: 0, y: 0 });
-          setDetectionResult(null);
+          // Use requestAnimationFrame for smoother state update
+          requestAnimationFrame(() => {
+            setSelectedImage(resizedImage);
+            setRotation(0);
+            setZoom(1);
+            setCrop({ x: 0, y: 0 });
+            setDetectionResult(null);
+            setIsProcessing(false);
+          });
         } catch (resizeErr) {
           console.warn('[FileUpload] Resize failed, using original:', resizeErr);
-          setSelectedImage(result);
+          requestAnimationFrame(() => {
+            setSelectedImage(result);
+            setIsProcessing(false);
+          });
         }
-        setIsProcessing(false);
       };
       reader.onerror = () => {
-        throw new Error('Failed to read file');
+        setError('Failed to read file');
+        setIsProcessing(false);
       };
       reader.readAsDataURL(file);
     } catch (err) {
@@ -264,7 +268,6 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
     setZoom(1);
     setCrop({ x: 0, y: 0 });
     setCroppedAreaPixels(null);
-    setDetectionResult(null);
     setError(null);
   };
 
@@ -283,33 +286,17 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
         rotation
       );
 
-      // Run Aadhaar detection
-      let detection: AadhaarDetectionResult | undefined;
-      if (isModelReady) {
-        try {
-          detection = await detectImage(croppedImage);
-          setDetectionResult(detection);
-          
-          // Check if wrong side
-          if (detection.detected && expectedCardSide && detection.cardType !== expectedCardSide) {
-            setError(`Wrong side detected. Please upload ${expectedCardSide} side.`);
-            setIsDetecting(false);
-            return;
-          }
-        } catch (detErr) {
-          console.warn('[FileUpload] Detection error:', detErr);
-        }
-      }
-
-      // Pass to parent
-      onUpload(croppedImage, detection);
+      // NO detection for gallery uploads - backend will handle verification
+      // This improves performance and prevents UI lag
+      
+      // Pass to parent WITHOUT detection (undefined = will be verified in backend)
+      onUpload(croppedImage);
       
       // Reset state
       setSelectedImage(null);
       setRotation(0);
       setZoom(1);
       setCroppedAreaPixels(null);
-      setDetectionResult(null);
     } catch (err) {
       console.error('[FileUpload] Process error:', err);
       setError(err instanceof Error ? err.message : 'Failed to process image');

@@ -132,7 +132,7 @@ export default function ImageCapture({
   const [isCropping, setIsCropping] = useState(false);
   
   // Hook for on-device Aadhaar detection
-  const { isModelLoading, loadProgress, isModelReady, detect: detectAadhaar, loadModel } = useAadhaarDetection();
+  const { isModelLoading, loadProgress, isModelReady, detect: detectAadhaar, detectImage: detectAadhaarImage, loadModel } = useAadhaarDetection();
 
   // Require 2 consecutive detections for stable detection (reduces flickering)
   const REQUIRED_CONSECUTIVE = 2;
@@ -145,11 +145,15 @@ export default function ImageCapture({
     }
   }, [initialImage]);
 
+  // Preload model immediately on mount
+  useEffect(() => {
+    loadModel();
+  }, [loadModel]);
+
   // Start camera on mount if not in preview mode
   useEffect(() => {
     if (mode === 'camera' && !preview) {
       startCamera();
-      loadModel();
     }
   }, []);
 
@@ -158,13 +162,18 @@ export default function ImageCapture({
     if (mode !== 'camera' || !isModelReady || !isStreaming) return;
 
     let isDetecting = false;
-    const DETECTION_INTERVAL = 300; // ms between detections (faster for smoother UX)
+    let lastDetectionTime = 0;
+    const DETECTION_INTERVAL = 600; // ms between detections (slower for mobile performance)
+    const MIN_DETECTION_GAP = 500; // Minimum gap between detections
     
     const runDetection = async () => {
+      const now = Date.now();
       if (!videoRef.current || !isStreaming || isDetecting) return;
       if (document.hidden) return; // Skip if tab is in background
+      if (now - lastDetectionTime < MIN_DETECTION_GAP) return; // Throttle
       
       isDetecting = true;
+      lastDetectionTime = now;
       
       try {
         const result = await detectAadhaar(videoRef.current);
@@ -244,29 +253,59 @@ export default function ImageCapture({
     }
 
     try {
-      const constraints = { 
-        video: { 
-          facingMode: 'environment', // Use back camera for documents
+      // iOS Safari requires specific constraints
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      
+      const constraints: MediaStreamConstraints = { 
+        video: isIOS ? {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 }
+        } : { 
+          facingMode: 'environment',
           width: { ideal: 1280 },
           height: { ideal: 720 }
-        } 
+        },
+        audio: false
       };
 
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (err) {
+        console.warn('Primary camera failed, trying fallback:', err);
         // Fallback to any camera
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
 
       streamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(e => console.error("Play error:", e));
-          setIsStreaming(true);
+        
+        // iOS requires explicit play after srcObject is set
+        videoRef.current.onloadedmetadata = async () => {
+          if (videoRef.current) {
+            try {
+              // iOS Safari needs muted and playsinline for autoplay
+              videoRef.current.muted = true;
+              videoRef.current.playsInline = true;
+              await videoRef.current.play();
+              setIsStreaming(true);
+            } catch (e) {
+              console.error("Play error:", e);
+              // Try one more time with a delay (iOS sometimes needs this)
+              setTimeout(async () => {
+                try {
+                  await videoRef.current?.play();
+                  setIsStreaming(true);
+                } catch (e2) {
+                  console.error("Retry play error:", e2);
+                  setError("Failed to start camera. Please try again.");
+                }
+              }, 100);
+            }
+          }
         };
       }
     } catch (err: any) {
@@ -344,12 +383,16 @@ export default function ImageCapture({
     // Validate file type
     if (!file.type.startsWith('image/')) {
       setError('Please select an image file.');
+      // Reset input immediately
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
       setError('Image is too large. Please select an image under 10MB.');
+      // Reset input immediately
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
@@ -359,20 +402,23 @@ export default function ImageCapture({
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result as string;
-      // Open crop editor
-      setImageToCrop(result);
-      setCrop({ x: 0, y: 0 });
-      setZoom(1);
-      setRotation(0);
-      setMode('crop');
+      // Open crop editor immediately for responsive UX
+      requestAnimationFrame(() => {
+        setImageToCrop(result);
+        setCrop({ x: 0, y: 0 });
+        setZoom(1);
+        setRotation(0);
+        setMode('crop');
+      });
+    };
+    reader.onerror = () => {
+      setError('Failed to read image file. Please try again.');
     };
     reader.readAsDataURL(file);
 
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  }, []);
+    // Reset input immediately to allow re-selection of same file
+    e.target.value = '';
+  }, [stopCamera]);
 
   // --- Crop Functions ---
   const onCropComplete = useCallback((_: Area, croppedPixels: Area) => {
@@ -393,7 +439,20 @@ export default function ImageCapture({
       setPreview(croppedImage);
       setImageToCrop(null);
       setMode('preview');
-      onCapture(croppedImage); // Will be detected later on verify
+      
+      // Run edge detection on cropped image
+      if (isModelReady) {
+        try {
+          const detection = await detectAadhaarImage(croppedImage);
+          console.log('Gallery upload detection:', detection);
+          onCapture(croppedImage, detection);
+        } catch (detErr) {
+          console.warn('Detection failed for gallery upload:', detErr);
+          onCapture(croppedImage); // Still capture even if detection fails
+        }
+      } else {
+        onCapture(croppedImage); // Capture without detection if model not ready
+      }
     } catch (err) {
       console.error('Failed to crop image:', err);
       setError('Failed to process image. Please try again.');
@@ -408,11 +467,16 @@ export default function ImageCapture({
     setTimeout(() => startCamera(), 100);
   };
 
-  const openGallery = () => {
-    fileInputRef.current?.click();
-  };
+  const openGallery = useCallback(() => {
+    // iOS Safari requires the click to happen synchronously from user gesture
+    // Using setTimeout can break this on iOS
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''; // Reset first to ensure change event fires
+      fileInputRef.current.click();
+    }
+  }, []);
 
-  const retake = () => {
+  const retake = useCallback(() => {
     setPreview(null);
     setLastDetection(null);
     setCountdown(3);
@@ -421,8 +485,10 @@ export default function ImageCapture({
     setMode('camera');
     onCapture('');
     // Start camera after state update
-    setTimeout(() => startCamera(), 100);
-  };
+    requestAnimationFrame(() => {
+      setTimeout(() => startCamera(), 50);
+    });
+  }, [onCapture]);
 
   // --- Status Helpers ---
   const getStatusText = () => {
@@ -486,12 +552,13 @@ export default function ImageCapture({
         </div>
       )}
 
-      {/* Hidden file input */}
+      {/* Hidden file input - iOS requires specific attributes */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        className="hidden"
+        className="absolute opacity-0 w-0 h-0 overflow-hidden"
+        style={{ position: 'absolute', left: '-9999px' }}
         onChange={handleFileSelect}
         title="Select image file"
         aria-label="Select image file"
@@ -507,9 +574,11 @@ export default function ImageCapture({
             <video 
               ref={videoRef} 
               autoPlay 
-              playsInline 
+              playsInline
               muted 
+              webkit-playsinline="true"
               className="w-full h-full object-cover"
+              style={{ WebkitTransform: 'scaleX(1)' }}
             />
 
             {/* Overlay when streaming */}
@@ -563,22 +632,26 @@ export default function ImageCapture({
           <div className="flex flex-col items-center gap-3">
             <div className="flex gap-3 justify-center">
               <button
+                type="button"
                 onClick={openGallery}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/30 text-white rounded-xl hover:bg-white/20 transition-all active:scale-95"
+                className="flex items-center gap-2 px-5 py-2.5 bg-white/10 border border-white/30 text-white rounded-xl hover:bg-white/20 transition-all active:scale-95 touch-manipulation select-none"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
               >
                 <Upload size={18} />
                 <span className="text-sm">Upload from Gallery</span>
               </button>
               
               <button
-                onClick={captureFromCamera}
+                type="button"
+                onClick={() => isStreaming && captureFromCamera()}
                 disabled={!isStreaming}
                 className={cn(
-                  "flex items-center gap-2 px-6 py-2.5 rounded-xl transition-all active:scale-95 font-medium",
+                  "flex items-center gap-2 px-6 py-2.5 rounded-xl transition-all active:scale-95 font-medium touch-manipulation select-none",
                   isStreaming 
                     ? "bg-lavender text-deep-violet hover:bg-lavender/90" 
                     : "bg-gray-500 text-gray-300 cursor-not-allowed"
                 )}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
               >
                 <Camera size={18} />
                 <span className="text-sm">Capture</span>
