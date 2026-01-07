@@ -1,34 +1,27 @@
 'use client';
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { Camera, RefreshCw, AlertCircle, CheckCircle2, Upload, Loader2 } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 import { FaceLandmarker, FilesetResolver, FaceLandmarkerResult } from "@mediapipe/tasks-vision";
-import { useAadhaarDetection, AadhaarDetectionResult } from '@/hooks/useAadhaarDetection';
 
 interface Props {
-  onCapture: (base64: string, detection?: AadhaarDetectionResult) => void;
+  onCapture: (base64: string) => void;
   label: string;
   initialImage: string | null;
   isSelfie?: boolean; // If true, enables Face Alignment logic
   retakeActions?: React.ReactNode;
-  // Expected card side for validation
-  expectedCardSide?: 'front' | 'back';
 }
 
-// Visual states for the overlay
+// Visual states for the overlay (selfie mode only)
 type AlignmentStatus = 'LOADING' | 'SEARCHING' | 'TOO_MANY' | 'TOO_FAR' | 'NOT_CENTERED' | 'BAD_ANGLE' | 'EYES_CLOSED' | 'FACE_COVERED' | 'ALIGNED';
-
-// Card detection states
-type CardDetectionStatus = 'LOADING' | 'NO_CARD' | 'DETECTED' | 'WRONG_SIDE';
 
 export default function CameraCapture({ 
   onCapture, 
   label, 
   initialImage, 
   isSelfie = false, 
-  retakeActions,
-  expectedCardSide
+  retakeActions
 }: Props) {
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -36,7 +29,6 @@ export default function CameraCapture({
   const landmarkerRef = useRef<FaceLandmarker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastVideoTimeRef = useRef<number>(-1);
-  const aadhaarDetectionRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- State ---
   const [isStreaming, setIsStreaming] = useState(false);
@@ -44,18 +36,9 @@ export default function CameraCapture({
   const [preview, setPreview] = useState<string | null>(initialImage);
   const [error, setError] = useState<string | null>(null);
   
-  // Face Alignment State
+  // Face Alignment State (for selfie only)
   const [alignmentStatus, setAlignmentStatus] = useState<AlignmentStatus>('LOADING');
   const [countdown, setCountdown] = useState<number>(3);
-  
-  // Card Detection State (for non-selfie captures)
-  const [cardDetectionStatus, setCardDetectionStatus] = useState<CardDetectionStatus>('LOADING');
-  
-  // Aadhaar Detection State
-  const [lastDetection, setLastDetection] = useState<AadhaarDetectionResult | null>(null);
-  
-  // Hook for on-device Aadhaar detection
-  const { isModelLoading, loadProgress, isModelReady, detect: detectAadhaar, loadModel } = useAadhaarDetection();
  
   // --- 1. Load MediaPipe Face Landmarker Model (Only if isSelfie is true) ---
   useEffect(() => {
@@ -131,70 +114,6 @@ export default function CameraCapture({
       }
     };
   }, [isSelfie]);
-
-  // --- 1.5 Load Aadhaar Detection Model (Only for non-selfie) ---
-  useEffect(() => {
-    if (isSelfie) return;
-    
-    // Load the on-device Aadhaar detection model
-    loadModel();
-  }, [isSelfie, loadModel]);
-
-  // --- 1.6 Aadhaar Detection Loop (Only for non-selfie) ---
-  useEffect(() => {
-    if (isSelfie || !isModelReady || !isStreaming || preview) return;
-
-    let isDetecting = false;
-    let lastDetectionTime = 0;
-    const DETECTION_INTERVAL = 400; // ms between detections (reduced for faster response)
-    const THROTTLE_ON_DETECT = 800; // Slow down after detection to save CPU
-    
-    // Start detection loop with requestAnimationFrame for smoother performance
-    const runDetection = async () => {
-      if (!videoRef.current || !isStreaming || isDetecting) return;
-      
-      // Skip detection if page is not visible (tab in background)
-      if (document.hidden) return;
-      
-      const now = performance.now();
-      const interval = lastDetection?.detected ? THROTTLE_ON_DETECT : DETECTION_INTERVAL;
-      
-      if (now - lastDetectionTime < interval) return;
-      
-      isDetecting = true;
-      lastDetectionTime = now;
-      
-      try {
-        const result = await detectAadhaar(videoRef.current);
-        setLastDetection(result);
-        
-        if (result.detected) {
-          // Check if it's the expected side
-          if (expectedCardSide && result.cardType !== expectedCardSide) {
-            setCardDetectionStatus('WRONG_SIDE');
-          } else {
-            setCardDetectionStatus('DETECTED');
-          }
-        } else {
-          setCardDetectionStatus('NO_CARD');
-        }
-      } catch (err) {
-        console.error('[AadhaarDetection] Error:', err);
-      } finally {
-        isDetecting = false;
-      }
-    };
-
-    // Use setInterval with shorter interval, but actual detection is throttled
-    aadhaarDetectionRef.current = setInterval(runDetection, 200);
-
-    return () => {
-      if (aadhaarDetectionRef.current) {
-        clearInterval(aadhaarDetectionRef.current);
-        aadhaarDetectionRef.current = null;
-      }
-    };
-  }, [isSelfie, isModelReady, isStreaming, preview, detectAadhaar, expectedCardSide]);
 
   // --- 2. Camera Lifecycle & Cleanup ---
   useEffect(() => {
@@ -292,14 +211,6 @@ export default function CameraCapture({
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
-    }
-    
-    // Clear Aadhaar detection interval
-    
-    // Clear Aadhaar detection interval
-    if (aadhaarDetectionRef.current) {
-      clearInterval(aadhaarDetectionRef.current);
-      aadhaarDetectionRef.current = null;
     }
   };
 
@@ -514,9 +425,8 @@ export default function CameraCapture({
     stopCamera();
     setPreview(base64);
     
-    // Pass the ONNX detection result along with the image
-    setTimeout(() => onCapture(base64, lastDetection || undefined), 0);
-  }, [onCapture, isStreaming, facingMode, lastDetection]);
+    setTimeout(() => onCapture(base64), 0);
+  }, [onCapture, isStreaming, facingMode]);
 
   // --- Auto Capture Countdown ---
   useEffect(() => {
@@ -547,37 +457,9 @@ export default function CameraCapture({
 
   // --- UI Helpers ---
   const isAligned = alignmentStatus === 'ALIGNED';
-  const isCardDetected = cardDetectionStatus === 'DETECTED' || (lastDetection?.detected && (!expectedCardSide || lastDetection.cardType === expectedCardSide));
-
-  // Auto-capture logic for Aadhaar detection
-  useEffect(() => {
-    if (isSelfie) return; // Skip for selfie mode
-    
-    let timer: NodeJS.Timeout;
-    if (isCardDetected && !preview && isStreaming) {
-      timer = setInterval(() => {
-        setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
-    } else if (!isCardDetected) {
-      setCountdown(3);
-    }
-
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isCardDetected, preview, isStreaming, isSelfie]);
-
-  // Capture when countdown reaches 0 for Aadhaar detection
-  useEffect(() => {
-    if (!isSelfie && countdown === 0 && isCardDetected && !preview && isStreaming) {
-      captureImage();
-    }
-  }, [countdown, isCardDetected, preview, isStreaming, isSelfie, captureImage]);
 
   const retake = () => {
     setPreview(null);
-    setLastDetection(null);
-    setCardDetectionStatus('LOADING');
     setCountdown(3);
     onCapture('');
     // startCamera is called by useEffect
@@ -602,17 +484,8 @@ export default function CameraCapture({
     return base;
   };
   
-  // Get card border color based on Aadhaar detection
+  // Card border color
   const getCardBorderColor = () => {
-    if (cardDetectionStatus === 'WRONG_SIDE') {
-      return 'border-red-500/70';
-    }
-    if (isCardDetected) {
-      return 'border-green-500/70';
-    }
-    if (isModelLoading) {
-      return 'border-blue-500/70';
-    }
     return 'border-white/50';
   };
 
@@ -632,34 +505,11 @@ export default function CameraCapture({
       }
     }
     
-    // Show loading status for on-device model
-    if (isModelLoading) {
-      return `Loading AI (${loadProgress}%)`;
-    }
-    
-    // Show Aadhaar detection status
-    if (lastDetection?.detected) {
-      const side = lastDetection.cardType === 'front' ? 'Front' : 
-                   lastDetection.cardType === 'back' ? 'Back' : 'Print';
-      const conf = Math.round(lastDetection.confidence * 100);
-      
-      if (expectedCardSide && lastDetection.cardType !== expectedCardSide) {
-        return `Wrong side (${side})`;
-      }
-      return `${side} detected (${conf}%)`;
-    }
-    
-    // Fallback status
-    switch (cardDetectionStatus) {
-      case 'LOADING': return "Loading AI...";
-      case 'NO_CARD': return "No Aadhaar card";
-      case 'WRONG_SIDE': return "Wrong side";
-      case 'DETECTED': return "Ready to capture ✓";
-      default: return "Position card...";
-    }
+    // For card capture - simple instruction
+    return "Position card & capture";
   };
   
-  // Get status badge styling based on detection
+  // Get status badge styling based on mode
   const getStatusBadgeStyles = () => {
     if (isSelfie) {
       return isAligned 
@@ -667,17 +517,8 @@ export default function CameraCapture({
         : "bg-red-500/90 text-white";
     }
     
-    // For Aadhaar detection
-    if (isModelLoading) {
-      return "bg-blue-500/90 text-white";
-    }
-    if (cardDetectionStatus === 'WRONG_SIDE') {
-      return "bg-red-500/90 text-white";
-    }
-    if (isCardDetected) {
-      return "bg-green-500/90 text-white";
-    }
-    return "bg-yellow-500/90 text-black";
+    // For card capture
+    return "bg-white/90 text-black";
   };
 
   return (
@@ -735,11 +576,11 @@ export default function CameraCapture({
                  "px-3 sm:px-4 py-1 sm:py-1.5 rounded-full font-bold text-[10px] sm:text-xs uppercase tracking-wide backdrop-blur-md shadow-lg transition-colors duration-300 flex items-center gap-1.5 sm:gap-2",
                  getStatusBadgeStyles()
                )}>
-                 {isModelLoading ? (
-                   <Loader2 size={12} className="sm:w-3.5 sm:h-3.5 animate-spin" />
-                 ) : (isSelfie ? isAligned : isCardDetected) 
-                   ? <CheckCircle2 size={12} className="sm:w-3.5 sm:h-3.5" /> 
-                   : <AlertCircle size={12} className="sm:w-3.5 sm:h-3.5" />}
+                 {isSelfie ? (
+                   isAligned ? <CheckCircle2 size={12} className="sm:w-3.5 sm:h-3.5" /> : <AlertCircle size={12} className="sm:w-3.5 sm:h-3.5" />
+                 ) : (
+                   <Camera size={12} className="sm:w-3.5 sm:h-3.5" />
+                 )}
                  {getStatusText()}
                </div>
             </div>
@@ -768,24 +609,15 @@ export default function CameraCapture({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 sm:gap-4">
-            <div className="relative flex items-center gap-3 sm:gap-4">
-              {/* Auto-capture countdown overlay for Aadhaar detection */}
-              {isCardDetected && countdown > 0 && (
-                <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
-                  <span className="text-6xl sm:text-8xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
-                </div>
-              )}
-
-              {/* Manual Capture Button for non-selfie (front/back) */}
-              {!isSelfie && (
-                <button 
-                  onClick={() => captureImage()}
-                  className="px-6 sm:px-8 py-2 bg-lavender text-deep-violet rounded-full font-bold shadow-lg transition-all transform active:scale-95 hover:bg-opacity-80 hover:shadow-lavender/30 text-sm sm:text-base"
-                >
-                  Capture
-                </button>
-              )}
-            </div>
+            {/* Manual Capture Button for non-selfie (front/back) */}
+            {!isSelfie && (
+              <button 
+                onClick={() => captureImage()}
+                className="px-6 sm:px-8 py-2 bg-lavender text-deep-violet rounded-full font-bold shadow-lg transition-all transform active:scale-95 hover:bg-opacity-80 hover:shadow-lavender/30 text-sm sm:text-base"
+              >
+                Capture
+              </button>
+            )}
           </div>
         )}
       </div>

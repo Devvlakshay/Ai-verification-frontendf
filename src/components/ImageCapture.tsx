@@ -1,17 +1,14 @@
 'use client';
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { Camera, RefreshCw, AlertCircle, Upload, CheckCircle2, Loader2, RotateCw, RotateCcw, ZoomIn, ZoomOut, Check, X } from 'lucide-react';
+import { Camera, RefreshCw, Upload, RotateCw, RotateCcw, ZoomIn, ZoomOut, Check, X, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 import Cropper, { Area, Point } from 'react-easy-crop';
-import { useAadhaarDetection, AadhaarDetectionResult } from '@/hooks/useAadhaarDetection';
 
 interface Props {
-  onCapture: (base64: string, detection?: AadhaarDetectionResult) => void;
+  onCapture: (base64: string) => void;
   label: string;
   initialImage: string | null;
-  // Expected card side for validation
-  cardSide?: 'front' | 'back';
 }
 
 type CaptureMode = 'camera' | 'preview' | 'crop';
@@ -103,25 +100,18 @@ const createCroppedImage = async (
 export default function ImageCapture({ 
   onCapture, 
   label, 
-  initialImage,
-  cardSide = 'front'
+  initialImage
 }: Props) {
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- State ---
   const [mode, setMode] = useState<CaptureMode>(initialImage ? 'preview' : 'camera');
   const [preview, setPreview] = useState<string | null>(initialImage);
   const [error, setError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
-  
-  // Detection state
-  const [lastDetection, setLastDetection] = useState<AadhaarDetectionResult | null>(null);
-  const [countdown, setCountdown] = useState<number>(3);
-  const [consecutiveDetections, setConsecutiveDetections] = useState<number>(0);
   
   // Crop state (for gallery uploads)
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
@@ -130,12 +120,6 @@ export default function ImageCapture({
   const [rotation, setRotation] = useState(0);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isCropping, setIsCropping] = useState(false);
-  
-  // Hook for on-device Aadhaar detection
-  const { isModelLoading, loadProgress, isModelReady, detect: detectAadhaar, detectImage: detectAadhaarImage, loadModel } = useAadhaarDetection();
-
-  // Require 2 consecutive detections for stable detection (reduces flickering)
-  const REQUIRED_CONSECUTIVE = 2;
 
   // Update preview when initialImage changes
   useEffect(() => {
@@ -145,11 +129,6 @@ export default function ImageCapture({
     }
   }, [initialImage]);
 
-  // Preload model immediately on mount
-  useEffect(() => {
-    loadModel();
-  }, [loadModel]);
-
   // Start camera on mount if not in preview mode
   useEffect(() => {
     if (mode === 'camera' && !preview) {
@@ -157,95 +136,10 @@ export default function ImageCapture({
     }
   }, []);
 
-  // --- Real-time Detection Loop ---
-  useEffect(() => {
-    if (mode !== 'camera' || !isModelReady || !isStreaming) return;
-
-    let isDetecting = false;
-    let lastDetectionTime = 0;
-    const DETECTION_INTERVAL = 600; // ms between detections (slower for mobile performance)
-    const MIN_DETECTION_GAP = 500; // Minimum gap between detections
-    
-    const runDetection = async () => {
-      const now = Date.now();
-      if (!videoRef.current || !isStreaming || isDetecting) return;
-      if (document.hidden) return; // Skip if tab is in background
-      if (now - lastDetectionTime < MIN_DETECTION_GAP) return; // Throttle
-      
-      isDetecting = true;
-      lastDetectionTime = now;
-      
-      try {
-        const result = await detectAadhaar(videoRef.current);
-        setLastDetection(result);
-        
-        // Track consecutive detections for stability
-        const isCorrectSide = result.detected && (!cardSide || result.cardType === cardSide);
-        if (isCorrectSide) {
-          setConsecutiveDetections(prev => prev + 1);
-        } else {
-          setConsecutiveDetections(0);
-        }
-      } catch (err) {
-        console.error('[AadhaarDetection] Error:', err);
-      } finally {
-        isDetecting = false;
-      }
-    };
-
-    detectionIntervalRef.current = setInterval(runDetection, DETECTION_INTERVAL);
-
-    return () => {
-      if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
-        detectionIntervalRef.current = null;
-      }
-    };
-  }, [mode, isModelReady, isStreaming, detectAadhaar, cardSide]);
-
-  // Check if card is properly detected (requires consecutive detections for stability)
-  const isCardDetected = lastDetection?.detected && 
-    (!cardSide || lastDetection.cardType === cardSide) &&
-    consecutiveDetections >= REQUIRED_CONSECUTIVE;
-  
-  const isWrongSide = lastDetection?.detected && 
-    cardSide && lastDetection.cardType !== cardSide;
-
-  // --- Auto Capture Countdown ---
-  useEffect(() => {
-    if (mode !== 'camera' || !isStreaming) {
-      setCountdown(3);
-      return;
-    }
-
-    let timer: NodeJS.Timeout;
-    
-    if (isCardDetected) {
-      timer = setInterval(() => {
-        setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
-    } else {
-      setCountdown(3);
-    }
-
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isCardDetected, mode, isStreaming]);
-
-  // Capture when countdown reaches 0
-  useEffect(() => {
-    if (countdown === 0 && isCardDetected && mode === 'camera' && isStreaming) {
-      captureFromCamera();
-    }
-  }, [countdown, isCardDetected, mode, isStreaming]);
-
   // --- Camera Functions ---
   const startCamera = async () => {
     setError(null);
     setMode('camera');
-    setLastDetection(null);
-    setCountdown(3);
     
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       setError("Camera API not supported. Please use HTTPS or upload from gallery.");
@@ -324,12 +218,6 @@ export default function ImageCapture({
       videoRef.current.srcObject = null;
     }
     setIsStreaming(false);
-    
-    // Clear detection interval
-    if (detectionIntervalRef.current) {
-      clearInterval(detectionIntervalRef.current);
-      detectionIntervalRef.current = null;
-    }
   }, []);
 
   // Cleanup on unmount
@@ -371,9 +259,8 @@ export default function ImageCapture({
     setPreview(base64);
     setMode('preview');
     
-    // Pass the detection result along with the image
-    onCapture(base64, lastDetection || undefined);
-  }, [isStreaming, stopCamera, onCapture, lastDetection]);
+    onCapture(base64);
+  }, [isStreaming, stopCamera, onCapture]);
 
   // --- Gallery/File Upload ---
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -439,20 +326,7 @@ export default function ImageCapture({
       setPreview(croppedImage);
       setImageToCrop(null);
       setMode('preview');
-      
-      // Run edge detection on cropped image
-      if (isModelReady) {
-        try {
-          const detection = await detectAadhaarImage(croppedImage);
-          console.log('Gallery upload detection:', detection);
-          onCapture(croppedImage, detection);
-        } catch (detErr) {
-          console.warn('Detection failed for gallery upload:', detErr);
-          onCapture(croppedImage); // Still capture even if detection fails
-        }
-      } else {
-        onCapture(croppedImage); // Capture without detection if model not ready
-      }
+      onCapture(croppedImage);
     } catch (err) {
       console.error('Failed to crop image:', err);
       setError('Failed to process image. Please try again.');
@@ -478,9 +352,6 @@ export default function ImageCapture({
 
   const retake = useCallback(() => {
     setPreview(null);
-    setLastDetection(null);
-    setCountdown(3);
-    setConsecutiveDetections(0);
     setImageToCrop(null);
     setMode('camera');
     onCapture('');
@@ -489,56 +360,6 @@ export default function ImageCapture({
       setTimeout(() => startCamera(), 50);
     });
   }, [onCapture]);
-
-  // --- Status Helpers ---
-  const getStatusText = () => {
-    if (isModelLoading) {
-      return `Loading AI (${loadProgress}%)`;
-    }
-    
-    if (lastDetection?.detected) {
-      const side = lastDetection.cardType === 'front' ? 'Front' : 
-                   lastDetection.cardType === 'back' ? 'Back' : 'Print';
-      const conf = Math.round(lastDetection.confidence * 100);
-      
-      if (isWrongSide) {
-        return `Wrong side (${side})`;
-      }
-      return `${side} detected (${conf}%)`;
-    }
-    
-    if (!isModelReady && !isModelLoading) {
-      return "Initializing...";
-    }
-    
-    return "Position card in frame";
-  };
-
-  const getStatusBadgeStyles = () => {
-    if (isModelLoading) {
-      return "bg-blue-500/90 text-white";
-    }
-    if (isWrongSide) {
-      return "bg-red-500/90 text-white";
-    }
-    if (isCardDetected) {
-      return "bg-green-500/90 text-white";
-    }
-    return "bg-yellow-500/90 text-black";
-  };
-
-  const getCardBorderColor = () => {
-    if (isWrongSide) {
-      return 'border-red-500/70';
-    }
-    if (isCardDetected) {
-      return 'border-green-500/70';
-    }
-    if (isModelLoading) {
-      return 'border-blue-500/70';
-    }
-    return 'border-white/50';
-  };
 
   // --- Render ---
   return (
@@ -586,37 +407,16 @@ export default function ImageCapture({
               <>
                 {/* Card Frame Overlay */}
                 <div className="absolute inset-0 flex items-center justify-center z-10 p-4">
-                  <div className={cn(
-                    "w-full h-full border-4 border-dashed rounded-2xl transition-colors duration-300",
-                    getCardBorderColor()
-                  )} />
+                  <div className="w-full h-full border-4 border-dashed rounded-2xl border-white/50" />
                 </div>
 
                 {/* Status Badge */}
                 <div className="absolute top-2 sm:top-4 left-1/2 -translate-x-1/2 z-20">
-                  <div className={cn(
-                    "px-3 sm:px-4 py-1 sm:py-1.5 rounded-full font-bold text-[10px] sm:text-xs uppercase tracking-wide backdrop-blur-md shadow-lg transition-colors duration-300 flex items-center gap-1.5 sm:gap-2",
-                    getStatusBadgeStyles()
-                  )}>
-                    {isModelLoading ? (
-                      <Loader2 size={12} className="sm:w-3.5 sm:h-3.5 animate-spin" />
-                    ) : isCardDetected ? (
-                      <CheckCircle2 size={12} className="sm:w-3.5 sm:h-3.5" />
-                    ) : (
-                      <AlertCircle size={12} className="sm:w-3.5 sm:h-3.5" />
-                    )}
-                    {getStatusText()}
+                  <div className="px-3 sm:px-4 py-1 sm:py-1.5 rounded-full font-bold text-[10px] sm:text-xs uppercase tracking-wide backdrop-blur-md shadow-lg bg-white/90 text-black flex items-center gap-1.5 sm:gap-2">
+                    <Camera size={12} className="sm:w-3.5 sm:h-3.5" />
+                    Position card & capture
                   </div>
                 </div>
-
-                {/* Countdown Overlay */}
-                {isCardDetected && countdown > 0 && (
-                  <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-                    <span className="text-7xl sm:text-8xl font-bold text-white drop-shadow-lg animate-pulse">
-                      {countdown}
-                    </span>
-                  </div>
-                )}
               </>
             )}
             
@@ -669,21 +469,6 @@ export default function ImageCapture({
             "aspect-[8/5]"
           )}>
             <Image src={preview} alt="Preview" fill className="object-cover" unoptimized />
-            
-            {/* Show detection result badge if available */}
-            {lastDetection?.detected && (
-              <div className="absolute top-2 sm:top-4 left-1/2 -translate-x-1/2 z-20">
-                <div className={cn(
-                  "px-3 sm:px-4 py-1 sm:py-1.5 rounded-full font-bold text-[10px] sm:text-xs uppercase tracking-wide backdrop-blur-md shadow-lg flex items-center gap-1.5 sm:gap-2",
-                  lastDetection.cardType === cardSide 
-                    ? "bg-green-500/90 text-white" 
-                    : "bg-yellow-500/90 text-black"
-                )}>
-                  <CheckCircle2 size={12} className="sm:w-3.5 sm:h-3.5" />
-                  {lastDetection.cardType === 'front' ? 'Front' : 'Back'} ({Math.round(lastDetection.confidence * 100)}%)
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="flex justify-center">
@@ -812,7 +597,7 @@ export default function ImageCapture({
               </button>
               <button
                 onClick={confirmCrop}
-                disabled={isCropping}
+                disabled={isCropping} 
                 className={cn(
                   "flex-1 py-2.5 sm:py-3 px-4 rounded-xl font-medium text-sm sm:text-base transition-colors flex items-center justify-center gap-2",
                   isCropping

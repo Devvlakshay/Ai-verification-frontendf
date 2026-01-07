@@ -16,7 +16,7 @@ MODEL_PATH = Path(__file__).parent.parent / "backend" / "models" / "aadhaar_dete
 MODEL_INPUT_SIZE = 640
 # Model class order: index 0 = back, index 1 = front, index 2 = print
 CLASS_NAMES = ["aadhaar_back", "aadhaar_front", "print_aadhaar", "aadhar_long_back", "aadhar_long_front"]
-CONFIDENCE_THRESHOLD = 0.25
+CONFIDENCE_THRESHOLD = 0.60
 
 
 class AadhaarDetector:

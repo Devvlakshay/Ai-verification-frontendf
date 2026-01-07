@@ -22,7 +22,7 @@ export default function BackPage() {
   const [frontDetection, setFrontDetection] = useState<AadhaarDetectionResult | null>(null);
   const [backDetection, setBackDetection] = useState<AadhaarDetectionResult | null>(null);
   
-  // Edge detection hook
+  // Edge detection hook - only used during verification
   const { isModelLoading, loadProgress, isModelReady, loadModel, detectImage } = useAadhaarDetection();
 
   // Update image state when data.passport_old changes
@@ -41,8 +41,8 @@ export default function BackPage() {
     }
   }, [isLoaded, data.passport_first, router]);
 
-  const handleImageUpdate = (img: string, detection?: AadhaarDetectionResult) => {
-    console.log('Back image updated:', img ? 'Image captured' : 'Image cleared', 'Detection:', detection);
+  const handleImageUpdate = (img: string) => {
+    console.log('Back image updated:', img ? 'Image captured' : 'Image cleared');
     
     setImage(img);
     updateField('passport_old', img);
@@ -60,15 +60,6 @@ export default function BackPage() {
         })
       }).catch(err => console.error('Failed to save back Aadhaar image:', err));
     }
-    
-    // Store detection result from camera capture
-    if (detection) {
-      setBackDetection(detection);
-      updateField('back_detection', detection);
-    } else {
-      setBackDetection(null);
-      updateField('back_detection', null);
-    }
   };
 
   // Verify both cards using edge detection (ONNX model on device)
@@ -82,40 +73,20 @@ export default function BackPage() {
         await loadModel();
       }
 
-      // Use existing front detection if available, otherwise detect
-      let frontResult: AadhaarDetectionResult;
-      const existingFrontDetection = data.front_detection as AadhaarDetectionResult | null;
-      
-      if (existingFrontDetection?.detected) {
-        setVerificationMessage('Using captured front card detection...');
-        frontResult = existingFrontDetection;
-      } else {
-        setVerificationMessage('Analyzing front card on device...');
-        frontResult = await detectImage(data.passport_first!);
-      }
-      
+      // Detect front card
+      setVerificationMessage('Analyzing front card...');
+      const frontResult = await detectImage(data.passport_first!);
       setFrontDetection(frontResult);
-      updateField('front_detection', frontResult);
-      
-      console.log('Front card edge detection:', frontResult);
+      console.log('Front card detection:', frontResult);
       
       // Small delay for UX
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Use existing back detection if available, otherwise detect
-      let backResult: AadhaarDetectionResult;
-      
-      if (backDetection?.detected) {
-        setVerificationMessage('Using captured back card detection...');
-        backResult = backDetection;
-      } else {
-        setVerificationMessage('Analyzing back card on device...');
-        backResult = await detectImage(image!);
-        setBackDetection(backResult);
-        updateField('back_detection', backResult);
-      }
-      
-      console.log('Back card edge detection:', backResult);
+      // Detect back card
+      setVerificationMessage('Analyzing back card...');
+      const backResult = await detectImage(image!);
+      setBackDetection(backResult);
+      console.log('Back card detection:', backResult);
       
       // Check results from edge detection
       const isFrontValid = frontResult.detected && frontResult.cardType === 'front';
@@ -149,7 +120,7 @@ export default function BackPage() {
       setVerificationMessage('An error occurred during verification. Please try again.');
       updateField('verification_status', 'rejected');
     }
-  }, [isModelReady, loadModel, detectImage, data.passport_first, data.front_detection, image, backDetection, updateField, router]);
+  }, [isModelReady, loadModel, detectImage, data.passport_first, image, updateField, router]);
 
   const handleNext = () => {
     // Validate back card exists
@@ -319,43 +290,12 @@ export default function BackPage() {
           <p className="text-red-300 text-sm">{validationError}</p>
         </div>
       )}
-
-      {/* Detection Status */}
-      {image && backDetection && (
-        <div className={`mx-4 mt-2 p-3 rounded-xl flex items-center gap-2 ${
-          isBackCardValid 
-            ? 'bg-green-500/20 border border-green-500/50' 
-            : backDetection.detected && backDetection.cardType !== 'back'
-              ? 'bg-yellow-500/20 border border-yellow-500/50'
-              : 'bg-red-500/20 border border-red-500/50'
-        }`}>
-          {isBackCardValid ? (
-            <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-          )}
-          <p className={`text-sm ${
-            isBackCardValid 
-              ? 'text-green-300' 
-              : backDetection.detected 
-                ? 'text-yellow-300'
-                : 'text-red-300'
-          }`}>
-            {isBackCardValid 
-              ? `✓ Back card detected (${Math.round(backDetection.confidence * 100)}% confidence)` 
-              : backDetection.detected
-                ? `⚠ Wrong side: ${backDetection.cardType === 'front' ? 'FRONT' : backDetection.cardType?.toUpperCase()} detected - Please capture BACK side`
-                : '⚠ No Aadhaar card detected - Position the BACK side in frame'}
-          </p>
-        </div>
-      )}
       
       <div className="flex-1 flex justify-center my-4 sm:my-6">
         <ImageCapture 
           onCapture={handleImageUpdate} 
           label="Back Card" 
           initialImage={image}
-          cardSide="back"
         />
       </div>
 
