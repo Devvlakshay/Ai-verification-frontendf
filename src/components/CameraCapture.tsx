@@ -67,20 +67,44 @@ export default function CameraCapture({
     let ignore = false;
     let landmarker: FaceLandmarker;
 
+    // Detect iOS/Safari - they have issues with GPU delegate
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
     async function loadFaceLandmarker() {
       try {
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
         );
-        landmarker = await FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-            delegate: "GPU",
-          },
-          outputFaceBlendshapes: true, // Required for eye detection
-          runningMode: "VIDEO",
-          numFaces: 1
-        });
+        
+        // Use CPU delegate for iOS/Safari as GPU delegate is unreliable
+        const delegate = (isIOS || isSafari) ? "CPU" : "GPU";
+        console.log(`[FaceLandmarker] Using ${delegate} delegate (iOS: ${isIOS}, Safari: ${isSafari})`);
+        
+        try {
+          landmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+              delegate: delegate,
+            },
+            outputFaceBlendshapes: true, // Required for eye detection
+            runningMode: "VIDEO",
+            numFaces: 1
+          });
+        } catch (gpuError) {
+          // Fallback to CPU if GPU fails (common on iOS)
+          console.warn("[FaceLandmarker] GPU delegate failed, falling back to CPU:", gpuError);
+          landmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+              delegate: "CPU",
+            },
+            outputFaceBlendshapes: true,
+            runningMode: "VIDEO",
+            numFaces: 1
+          });
+        }
         
         if (!ignore) {
             landmarkerRef.current = landmarker;
