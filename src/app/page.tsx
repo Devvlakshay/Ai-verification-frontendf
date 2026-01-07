@@ -26,10 +26,13 @@ function decodeJwt(token: string) {
 
 export default function Home() {
   const router = useRouter();
-  const { updateField } = useVerificationStore();
+  const { data, updateField, clearImages, isLoaded } = useVerificationStore();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wait for store to load before processing
+    if (!isLoaded) return;
+    
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
 
@@ -44,6 +47,12 @@ export default function Home() {
       
       // Check required fields
       if (decoded.user_id && decoded.name && decoded.dob && decoded.gender) {
+        // Check if this is a different user - clear old images
+        if (data.user_id && data.user_id !== decoded.user_id) {
+          console.log(`🔄 New user detected (${decoded.user_id}), clearing old images from user ${data.user_id}`);
+          clearImages();
+        }
+        
         updateField('user_id', decoded.user_id);
         updateField('name', decoded.name);
         updateField('dob', decoded.dob);
@@ -72,7 +81,7 @@ export default function Home() {
     } else {
       setError('Please open this link from the App');
     }
-  }, [router, updateField]);
+  }, [router, updateField, clearImages, data.user_id, isLoaded]);
 
   return (
     <div className="min-h-screen min-h-dvh flex flex-col items-center justify-center bg-deep-violet text-white p-4 sm:p-6 md:p-8 text-center">

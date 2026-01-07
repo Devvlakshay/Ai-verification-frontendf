@@ -45,6 +45,19 @@ function FrontPageContent() {
     setHasImage(!!img);
     setValidationError(null);
     
+    // Save front Aadhaar image to uploads directory
+    if (img && data.user_id) {
+      fetch('/api/save-aadhaar-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: data.user_id,
+          image: img,
+          side: 'front'
+        })
+      }).catch(err => console.error('Failed to save front Aadhaar image:', err));
+    }
+    
     // Store detection result from camera or gallery (edge detection)
     if (detection) {
       setFrontDetection(detection);

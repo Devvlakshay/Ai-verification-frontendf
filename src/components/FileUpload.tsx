@@ -16,6 +16,7 @@ import {
   Upload
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useImageWorker } from '@/hooks/useImageWorker';
 
 interface Props {
   onUpload: (base64: string, detection?: AadhaarDetectionResult) => void;
@@ -174,6 +175,9 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
   const [isDetecting, setIsDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Web Worker for image processing (runs in separate thread)
+  const { cropImage, resizeImage, isWorkerAvailable } = useImageWorker();
+
   // Dropzone configuration
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -206,7 +210,6 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
             setRotation(0);
             setZoom(1);
             setCrop({ x: 0, y: 0 });
-            setDetectionResult(null);
             setIsProcessing(false);
           });
         } catch (resizeErr) {
@@ -271,7 +274,7 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
     setError(null);
   };
 
-  // Confirm and process image
+  // Confirm and process image (uses Web Worker for better performance)
   const confirmImage = async () => {
     if (!selectedImage || !croppedAreaPixels) return;
 
@@ -279,12 +282,21 @@ export default function FileUpload({ onUpload, label, expectedCardSide }: Props)
     setError(null);
 
     try {
-      // Create cropped image
-      const croppedImage = await createCroppedImage(
-        selectedImage,
-        croppedAreaPixels,
-        rotation
-      );
+      let croppedImage: string;
+
+      // Use Web Worker if available (runs in separate thread, won't freeze UI)
+      if (isWorkerAvailable()) {
+        console.log('[FileUpload] Using Web Worker for image processing');
+        croppedImage = await cropImage(selectedImage, croppedAreaPixels, rotation);
+      } else {
+        // Fallback to main thread processing
+        console.log('[FileUpload] Web Worker unavailable, using main thread');
+        croppedImage = await createCroppedImage(
+          selectedImage,
+          croppedAreaPixels,
+          rotation
+        );
+      }
 
       // NO detection for gallery uploads - backend will handle verification
       // This improves performance and prevents UI lag

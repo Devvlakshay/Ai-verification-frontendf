@@ -3,7 +3,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { Camera, RefreshCw, AlertCircle, CheckCircle2, Upload, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
-import { FaceDetector, FilesetResolver, Detection } from "@mediapipe/tasks-vision";
+import { FaceLandmarker, FilesetResolver, FaceLandmarkerResult } from "@mediapipe/tasks-vision";
 import { useAadhaarDetection, AadhaarDetectionResult } from '@/hooks/useAadhaarDetection';
 
 interface Props {
@@ -17,7 +17,7 @@ interface Props {
 }
 
 // Visual states for the overlay
-type AlignmentStatus = 'LOADING' | 'SEARCHING' | 'TOO_MANY' | 'TOO_FAR' | 'NOT_CENTERED' | 'BAD_ANGLE' | 'ALIGNED';
+type AlignmentStatus = 'LOADING' | 'SEARCHING' | 'TOO_MANY' | 'TOO_FAR' | 'NOT_CENTERED' | 'BAD_ANGLE' | 'EYES_CLOSED' | 'FACE_COVERED' | 'ALIGNED';
 
 // Card detection states
 type CardDetectionStatus = 'LOADING' | 'NO_CARD' | 'DETECTED' | 'WRONG_SIDE';
@@ -33,7 +33,7 @@ export default function CameraCapture({
   // --- Refs ---
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const detectorRef = useRef<FaceDetector | null>(null);
+  const landmarkerRef = useRef<FaceLandmarker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastVideoTimeRef = useRef<number>(-1);
   const aadhaarDetectionRef = useRef<NodeJS.Timeout | null>(null);
@@ -57,7 +57,7 @@ export default function CameraCapture({
   // Hook for on-device Aadhaar detection
   const { isModelLoading, loadProgress, isModelReady, detect: detectAadhaar, loadModel } = useAadhaarDetection();
  
-  // --- 1. Load MediaPipe Model (Only if isSelfie is true) ---
+  // --- 1. Load MediaPipe Face Landmarker Model (Only if isSelfie is true) ---
   useEffect(() => {
     if (!isSelfie) {
       setAlignmentStatus('ALIGNED'); // Bypass for documents
@@ -65,27 +65,28 @@ export default function CameraCapture({
     }
 
     let ignore = false;
-    let detector: FaceDetector;
+    let landmarker: FaceLandmarker;
 
-    async function loadModel() {
+    async function loadFaceLandmarker() {
       try {
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
         );
-        detector = await FaceDetector.createFromOptions(vision, {
+        landmarker = await FaceLandmarker.createFromOptions(vision, {
           baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`,
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
             delegate: "GPU",
-            
           },
-          runningMode: "VIDEO"
+          outputFaceBlendshapes: true, // Required for eye detection
+          runningMode: "VIDEO",
+          numFaces: 1
         });
         
         if (!ignore) {
-            detectorRef.current = detector;
+            landmarkerRef.current = landmarker;
             setAlignmentStatus('SEARCHING');
         } else {
-            detector.close();
+            landmarker.close();
         }
       } catch (err) {
         console.error("MediaPipe Load Error:", err);
@@ -96,13 +97,13 @@ export default function CameraCapture({
       }
     };
 
-    loadModel();
+    loadFaceLandmarker();
 
     return () => {
       ignore = true;
-      if (detectorRef.current) {
-        detectorRef.current.close();
-        detectorRef.current = null;
+      if (landmarkerRef.current) {
+        landmarkerRef.current.close();
+        landmarkerRef.current = null;
       }
     };
   }, [isSelfie]);
@@ -281,7 +282,7 @@ export default function CameraCapture({
   // --- 3. The Face Detection Loop ---
   const predictWebcam = () => {
     // Loop guard
-    if (!detectorRef.current || !videoRef.current || !streamRef.current) return;
+    if (!landmarkerRef.current || !videoRef.current || !streamRef.current) return;
     
     const video = videoRef.current;
     
@@ -291,8 +292,8 @@ export default function CameraCapture({
       const startTimeMs = performance.now();
       
       try {
-        const detections = detectorRef.current.detectForVideo(video, startTimeMs).detections;
-        validateFace(detections, video.videoWidth, video.videoHeight);
+        const result = landmarkerRef.current.detectForVideo(video, startTimeMs);
+        validateFace(result, video.videoWidth, video.videoHeight);
       } catch (e) {
         console.error("Detection Error", e);
       }
@@ -302,65 +303,148 @@ export default function CameraCapture({
     animationFrameRef.current = requestAnimationFrame(predictWebcam);
   };
 
-  // --- 4. Face Alignment Logic (The Core Request) ---
-  const validateFace = (detections: Detection[], vWidth: number, vHeight: number) => {
+  // --- 4. Face Alignment Logic with Eye Detection ---
+  const validateFace = (result: FaceLandmarkerResult, vWidth: number, vHeight: number) => {
     // Rule 0: Exactly one face
-    if (detections.length === 0) {
+    if (!result.faceLandmarks || result.faceLandmarks.length === 0) {
       setAlignmentStatus('SEARCHING');
       return;
     }
-    if (detections.length > 1) {
+    if (result.faceLandmarks.length > 1) {
       setAlignmentStatus('TOO_MANY');
       return;
     }
 
-    const face = detections[0];
-    const box = face.boundingBox;
+    const landmarks = result.faceLandmarks[0];
+    const blendshapes = result.faceBlendshapes?.[0]?.categories;
     
-    // Only available if boundingBox is valid
-    if (!box) return;
+    // Calculate bounding box from landmarks
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    for (const lm of landmarks) {
+      minX = Math.min(minX, lm.x);
+      maxX = Math.max(maxX, lm.x);
+      minY = Math.min(minY, lm.y);
+      maxY = Math.max(maxY, lm.y);
+    }
+    
+    const boxWidth = (maxX - minX) * vWidth;
+    const boxHeight = (maxY - minY) * vHeight;
 
     // Rule 1: Size (Area > 6% of frame)
-    // Avoids faces that are too far away
-    const faceArea = (box.width * box.height);
-    const frameArea = (vWidth * vHeight);
+    const faceArea = boxWidth * boxHeight;
+    const frameArea = vWidth * vHeight;
     if ((faceArea / frameArea) < 0.06) {
       setAlignmentStatus('TOO_FAR');
       return;
     }
 
     // Rule 2: Centering
-    // Center of the face bounding box
-    const faceCenterX = box.originX + (box.width / 2);
-    const faceCenterY = box.originY + (box.height / 2);
-
-    // Normalize coordinates (0.0 to 1.0)
-    const normX = faceCenterX / vWidth;
-    const normY = faceCenterY / vHeight;
+    const faceCenterX = (minX + maxX) / 2;
+    const faceCenterY = (minY + maxY) / 2;
 
     // Constraints: X (35% - 65%), Y (25% - 65%)
-    if (normX < 0.35 || normX > 0.65 || normY < 0.25 || normY > 0.65) {
+    if (faceCenterX < 0.35 || faceCenterX > 0.65 || faceCenterY < 0.25 || faceCenterY > 0.65) {
       setAlignmentStatus('NOT_CENTERED');
       return;
     }
 
-    // Rule 3: Front Facing (Yaw check using landmarks)
-    // Keypoints: 2=Nose, 4=RightEar, 5=LeftEar
-    if (face.keypoints && face.keypoints.length >= 6) {
-        const nose = face.keypoints[2];
-        const rightEar = face.keypoints[4];
-        const leftEar = face.keypoints[5];
+    // Rule 3: Front Facing (using nose and ear landmarks)
+    // Landmark indices: 1=nose tip, 234=right ear, 454=left ear
+    const nose = landmarks[1];
+    const rightEar = landmarks[234];
+    const leftEar = landmarks[454];
 
-        const distToRight = Math.abs(rightEar.x - nose.x);
-        const distToLeft = Math.abs(leftEar.x - nose.x);
-        
-        // Ratio close to 1.0 means looking straight. 
-        // < 0.5 or > 2.0 means looking side.
-        const ratio = distToRight / (distToLeft + 0.01);
-        if (ratio < 0.4 || ratio > 2.5) {
-            setAlignmentStatus('BAD_ANGLE');
-            return;
+    const distToRight = Math.abs(rightEar.x - nose.x);
+    const distToLeft = Math.abs(leftEar.x - nose.x);
+    
+    const ratio = distToRight / (distToLeft + 0.01);
+    if (ratio < 0.4 || ratio > 2.5) {
+      setAlignmentStatus('BAD_ANGLE');
+      return;
+    }
+
+    // Rule 4: EYE DETECTION - Check if eyes are open using blendshapes
+    if (blendshapes) {
+      // Find eyeBlinkLeft and eyeBlinkRight blendshapes
+      const leftBlink = blendshapes.find(b => b.categoryName === 'eyeBlinkLeft');
+      const rightBlink = blendshapes.find(b => b.categoryName === 'eyeBlinkRight');
+      
+      // Score > 0.5 means eye is closed
+      const leftEyeClosed = leftBlink && leftBlink.score > 0.5;
+      const rightEyeClosed = rightBlink && rightBlink.score > 0.5;
+      
+      if (leftEyeClosed || rightEyeClosed) {
+        setAlignmentStatus('EYES_CLOSED');
+        return;
+      }
+    }
+
+    // Rule 5: FACE VISIBILITY - Ensure full face is visible using landmark confidence
+    // Check key facial landmarks are present and have good confidence
+    // Key landmarks: nose tip (1), chin (152), forehead (10), left cheek (234), right cheek (454)
+    const keyLandmarkIndices = [1, 152, 10, 234, 454, 61, 291]; // nose, chin, forehead, ears, mouth corners
+    
+    // Calculate face visibility by checking if key landmarks are within frame
+    let visibleLandmarks = 0;
+    for (const idx of keyLandmarkIndices) {
+      const lm = landmarks[idx];
+      if (lm && lm.x > 0.05 && lm.x < 0.95 && lm.y > 0.05 && lm.y < 0.95) {
+        visibleLandmarks++;
+      }
+    }
+    
+    // Require at least 6 out of 7 key landmarks to be visible
+    if (visibleLandmarks < 6) {
+      setAlignmentStatus('FACE_COVERED');
+      return;
+    }
+    
+    // Rule 6: FACE COMPLETENESS - Check nose and mouth area visibility using blendshapes
+    // MediaPipe provides jawOpen, mouthClose, noseSneerLeft, noseSneerRight blendshapes
+    // If these have very low scores AND face detection confidence is low, face may be covered
+    if (blendshapes) {
+      // Check for mouth-related blendshapes - their presence indicates mouth is visible
+      const jawOpen = blendshapes.find(b => b.categoryName === 'jawOpen');
+      const mouthClose = blendshapes.find(b => b.categoryName === 'mouthClose');
+      const mouthLeft = blendshapes.find(b => b.categoryName === 'mouthLeft');
+      const mouthRight = blendshapes.find(b => b.categoryName === 'mouthRight');
+      const mouthPucker = blendshapes.find(b => b.categoryName === 'mouthPucker');
+      
+      // If mouth blendshapes are not detected or have undefined scores, face may be covered
+      const mouthBlendshapesExist = jawOpen !== undefined && mouthClose !== undefined;
+      
+      if (!mouthBlendshapesExist) {
+        setAlignmentStatus('FACE_COVERED');
+        return;
+      }
+      
+      // Additional check: verify mouth landmarks are within expected face bounds
+      // Mouth landmarks: 61 (left corner), 291 (right corner), 13 (upper lip), 14 (lower lip)
+      const upperLip = landmarks[13];
+      const lowerLip = landmarks[14];
+      const mouthLeftLm = landmarks[61];
+      const mouthRightLm = landmarks[291];
+      
+      // Check that mouth landmarks are positioned correctly relative to nose
+      const noseTip = landmarks[1];
+      if (upperLip && noseTip) {
+        // Mouth should be below nose
+        if (upperLip.y < noseTip.y) {
+          setAlignmentStatus('FACE_COVERED');
+          return;
         }
+      }
+      
+      // Check mouth width is reasonable (not too narrow, which might indicate occlusion)
+      if (mouthLeftLm && mouthRightLm) {
+        const mouthWidth = Math.abs(mouthRightLm.x - mouthLeftLm.x);
+        const faceWidth = maxX - minX;
+        // Mouth width should be at least 15% of face width
+        if (mouthWidth / faceWidth < 0.15) {
+          setAlignmentStatus('FACE_COVERED');
+          return;
+        }
+      }
     }
 
     // If all pass:
@@ -517,6 +601,8 @@ export default function CameraCapture({
         case 'TOO_FAR': return "Come closer";
         case 'NOT_CENTERED': return "Center your face";
         case 'BAD_ANGLE': return "Look straight";
+        case 'EYES_CLOSED': return "Open your eyes";
+        case 'FACE_COVERED': return "Show full face";
         case 'ALIGNED': return `Holding... ${countdown}`;
         default: return "";
       }

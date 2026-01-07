@@ -48,6 +48,19 @@ export default function BackPage() {
     updateField('passport_old', img);
     setValidationError(null);
     
+    // Save back Aadhaar image to uploads directory
+    if (img && data.user_id) {
+      fetch('/api/save-aadhaar-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: data.user_id,
+          image: img,
+          side: 'back'
+        })
+      }).catch(err => console.error('Failed to save back Aadhaar image:', err));
+    }
+    
     // Store detection result from camera capture
     if (detection) {
       setBackDetection(detection);

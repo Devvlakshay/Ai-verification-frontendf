@@ -107,10 +107,17 @@ The backend APIs remain available for:
 - 🔐 **JWT Token Handling** - Secure session management
 - 🎨 **Modern UI** - Tailwind CSS with animations
 - ⚡ **Memory Optimized** - Singleton model management
+- 👤 **Advanced Face Detection** - Eyes open, full face visibility checks
+- 💾 **Auto-Save Images** - Selfie and Aadhaar images saved to server
+- 🔄 **Multi-User Support** - Automatic data clearing on user switch
 
 ### On-Device AI (Primary)
 - 🧠 **ONNX Runtime Web** - Browser-based ML inference
 - 👤 **MediaPipe Face Detection** - Real-time face alignment for selfies
+  - Eye blink detection (ensures eyes are open)
+  - Face visibility validation (mouth, nose, chin must be visible)
+  - Face centering and angle checks
+  - Auto-capture with 3-second countdown when aligned
 - 🎯 **YOLOv8 Detection** - Aadhaar card front/back/print detection
 - 🔄 **Shared Model Instance** - Memory-efficient singleton pattern
 - 📊 **Live Feedback** - Real-time detection status during capture
@@ -155,6 +162,22 @@ const result = await manager.detectImage(imageBase64);
 // Cleanup when done (Result page)
 await unloadAadhaarModel();
 ```
+
+### Face Detection Validation (Selfie)
+
+The selfie capture uses **MediaPipe Face Landmarker** with multiple validation rules:
+
+| Rule | Check | Status Message |
+|------|-------|----------------|
+| **Face Count** | Exactly 1 face detected | "Find face..." / "One person only" |
+| **Face Size** | Area > 6% of frame | "Come closer" |
+| **Centering** | Face center at X: 35-65%, Y: 25-65% | "Center your face" |
+| **Front Facing** | Nose-to-ear ratio 0.4-2.5 | "Look straight" |
+| **Eyes Open** | Blink score < 0.5 for both eyes | "Open your eyes" |
+| **Face Visible** | 6+ key landmarks in frame | "Show full face" |
+| **Mouth Visible** | Mouth blendshapes detected | "Show full face" |
+
+When all checks pass → **"Holding... 3"** → Auto-capture after countdown.
 
 ### Detection Classes
 
@@ -273,6 +296,12 @@ Implemented several optimizations to reduce memory to ~300-400MB:
 - Environment variables for all secrets
 - Temporary files cleaned up after processing
 
+### Multi-User Session Handling
+- When a new `user_id` is detected from JWT, old cached images are automatically cleared
+- Each user gets isolated storage in `public/uploads/{user_id}/`
+- IndexedDB data is reset when switching users
+- Prevents data leakage between different verification sessions
+
 ---
 
 ## 📁 Project Structure
@@ -297,6 +326,7 @@ ai-verification-frontend/
 │   │   │   ├── 📂 verify-image/      # Document verification
 │   │   │   ├── 📂 submit-verification/ # Final submission
 │   │   │   ├── 📂 save-selfie/       # Selfie storage
+│   │   │   ├── 📂 save-aadhaar-image/ # Aadhaar front/back storage
 │   │   │   └── 📂 save-jwt-data/     # JWT data storage
 │   │   │
 │   │   ├── 📂 edge-demo/        # Edge inference demo page
@@ -344,6 +374,11 @@ ai-verification-frontend/
 │   │   └── 📄 ort.*.mjs         # WASM runtime files
 │   │
 │   └── 📂 uploads/              # Uploaded files storage
+│       └── 📂 {user_id}/        # Per-user directory
+│           ├── 📄 jwt_data.json     # User JWT data
+│           ├── 📄 selfie.jpg        # Selfie image
+│           ├── 📄 aadhaar_front.jpg # Aadhaar front image
+│           └── 📄 aadhaar_back.jpg  # Aadhaar back image
 │
 ├── 📂 backend/
 │   ├── 📄 main.py               # FastAPI application

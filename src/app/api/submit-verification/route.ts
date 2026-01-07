@@ -1,18 +1,49 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
 import { getSecureHeaders } from '@/lib/jwt';
 
 /**
- * Stateless Submit Verification API Route
+ * Submit Verification API Route
  * 
  * Key changes:
- * - NO disk writes - images sent directly as base64
+ * - Saves images to disk in public/uploads/{user_id}/
  * - Supports force_upload flag for three-strike rule bypass
  * - Handles pending_review status for manual review queue
  */
 
 // Backend URL
 const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:8109';
+
+// Helper function to save base64 image to disk
+async function saveImageToDisk(base64Image: string, userId: string, filename: string): Promise<string> {
+  try {
+    // Extract base64 data (remove data:image/...;base64, prefix if present)
+    const base64Data = base64Image.includes(';base64,') 
+      ? base64Image.split(';base64,').pop()! 
+      : base64Image;
+    
+    // Define path: public/uploads/{user_id}/
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads', userId);
+    
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      await fs.promises.mkdir(uploadDir, { recursive: true });
+    }
+    
+    const filePath = path.join(uploadDir, filename);
+    
+    // Save file
+    await fs.promises.writeFile(filePath, base64Data, { encoding: 'base64' });
+    
+    console.log(`✅ Saved: public/uploads/${userId}/${filename}`);
+    return `/uploads/${userId}/${filename}`;
+  } catch (error) {
+    console.error(`❌ Failed to save ${filename}:`, error);
+    throw error;
+  }
+}
 
 interface SubmitVerificationRequest {
   user_id: string;
@@ -54,7 +85,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Both front and back images are required' }, { status: 400 });
     }
 
-    // Send base64 images directly to backend - NO DISK WRITES
+    // Save images to disk (public/uploads/{user_id}/)
+    console.log("💾 Saving images to disk...");
+    const savedPaths: { front?: string; back?: string } = {};
+    
+    try {
+      // Save front and back images in parallel
+      const [frontPath, backPath] = await Promise.all([
+        saveImageToDisk(passport_first, String(user_id), 'aadhaar_front.jpg'),
+        saveImageToDisk(passport_old, String(user_id), 'aadhaar_back.jpg')
+      ]);
+      
+      savedPaths.front = frontPath;
+      savedPaths.back = backPath;
+      console.log("✅ Images saved:", savedPaths);
+    } catch (saveError) {
+      console.warn("⚠️ Failed to save images to disk, continuing with verification:", saveError);
+      // Continue with verification even if saving fails
+    }
+
+    // Send base64 images directly to backend
     const backendPayload = {
       user_id: String(user_id),
       front_image: passport_first,  // Base64 string
@@ -62,7 +112,7 @@ export async function POST(req: Request) {
       force_upload: force_upload
     };
 
-    console.log("Sending stateless payload to Python backend...");
+    console.log("Sending payload to Python backend...");
 
     const secureHeaders = await getSecureHeaders(String(user_id));
     
@@ -97,6 +147,7 @@ export async function POST(req: Request) {
       final_decision: final_decision,
       reason: reason,
       status: status,
+      saved_paths: savedPaths,  // Include saved paths in response
       details: backendData 
     };
 
