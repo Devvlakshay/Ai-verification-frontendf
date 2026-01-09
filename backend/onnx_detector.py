@@ -12,10 +12,11 @@ import onnxruntime as ort
 from pathlib import Path
 
 # Model configuration
-MODEL_PATH = Path(__file__).parent.parent / "backend" / "models" / "aadhaar_detector_int8.onnx"
+SCRIPT_DIR = Path(__file__).resolve().parent
+MODEL_PATH = SCRIPT_DIR / "public" / "models" / "aadhaar_detector_v2.onnx"
 MODEL_INPUT_SIZE = 640
 # Model class order: index 0 = back, index 1 = front, index 2 = print
-CLASS_NAMES = ["aadhaar_back", "aadhaar_front", "print_aadhaar", "aadhar_long_back", "aadhar_long_front"]
+CLASS_NAMES = ["aadhar_back", "aadhar_front", "aadhar_long_back", "aadhar_long_front", "other", "print_aadhar"]
 CONFIDENCE_THRESHOLD = 0.60
 
 

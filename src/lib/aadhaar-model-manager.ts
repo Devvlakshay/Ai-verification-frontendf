@@ -68,18 +68,21 @@ type ModelState = 'idle' | 'loading' | 'ready' | 'error';
 type LoadProgressCallback = (progress: number) => void;
 type StateChangeCallback = (state: ModelState) => void;
 
-// Model outputs [1, 7, 8400] = 4 bbox values + 3 class scores
-// Classes: index 0 = aadhaar_back, index 1 = aadhaar_front, index 2 = print_aadhaar
-const NUM_CLASSES = 3;
-const CLASS_NAMES = ['aadhaar_back', 'aadhaar_front', 'print_aadhaar'];
+// Model outputs [1, 10, 8400] = 4 bbox values + 6 class scores
+// Classes: aadhar_back, aadhar_front, aadhar_long_back, aadhar_long_front, other, print_aadhar
+const NUM_CLASSES = 6;
+const CLASS_NAMES = ['aadhar_back', 'aadhar_front', 'aadhar_long_back', 'aadhar_long_front', 'other', 'print_aadhar'];
 const ONNX_CDN_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js';
 
-// Confidence threshold for detection (52%)
-const CONFIDENCE_THRESHOLD = 0.52;
+// Confidence threshold for detection - Lowered due to weak model performance
+// TODO: Retrain model with better data for higher accuracy
+const CONFIDENCE_THRESHOLD = 0.35;
 
-// Single model - INT8 quantized (~25MB)
-const MODEL_PATH = '/models/aadhaar_detector_int8.onnx';
-const MODEL_INPUT_SIZE = 640;
+// V2 Small model - Faster inference with 320px input
+const MODEL_PATH = '/models/aadhaar_detector_v2_small.onnx';
+const MODEL_PATH_SMALL = '/models/aadhaar_detector_v2_small.onnx';
+const MODEL_INPUT_SIZE = 320;
+const MODEL_INPUT_SIZE_SMALL = 320;
 
 class AadhaarModelManager {
   private session: OrtInferenceSession | null = null;
@@ -471,8 +474,8 @@ class AadhaarModelManager {
 
   /**
    * Parse YOLO output to find best detection
-   * Detects: aadhaar_front, aadhaar_back, print_aadhaar (3 classes)
-   * Confidence threshold: 60%
+   * Detects: aadhar_back, aadhar_front, aadhar_long_back, aadhar_long_front, other, print_aadhar
+   * Confidence threshold: 52%
    */
   private parseOutput(
     outputData: Float32Array, 
@@ -486,7 +489,7 @@ class AadhaarModelManager {
     const scaleY = originalHeight / inputSize;
     
     const numDetections = dims[2] || 8400;
-    // Use 60% confidence threshold for both video and image
+    // Use 52% confidence threshold for both video and image
     const confidenceThreshold = CONFIDENCE_THRESHOLD;
     
     let bestDetection: AadhaarDetectionResult = {
@@ -497,7 +500,7 @@ class AadhaarModelManager {
     
     for (let i = 0; i < numDetections; i++) {
       const classScores = [];
-      // Check 3 classes (model output: 4 bbox + 3 class scores = 7 channels)
+      // Check 6 classes (model output: 4 bbox + 6 class scores = 10 channels)
       for (let c = 0; c < NUM_CLASSES; c++) {
         const idx = (4 + c) * numDetections + i;
         classScores.push(outputData[idx] || 0);
@@ -519,16 +522,23 @@ class AadhaarModelManager {
         const boxHeight = height * scaleY;
         
         // Map class index to card type
-        // 0: aadhaar_back -> 'back'
-        // 1: aadhaar_front -> 'front'
-        // 2: print_aadhaar -> 'print'
-        let cardType: 'front' | 'back' | 'print';
-        if (maxClassIdx === 0) {
+        // 0: aadhar_back -> 'back'
+        // 1: aadhar_front -> 'front'
+        // 2: aadhar_long_back -> 'back'
+        // 3: aadhar_long_front -> 'front'
+        // 4: other -> null (skip)
+        // 5: print_aadhar -> 'print'
+        let cardType: 'front' | 'back' | 'print' | null = null;
+        
+        if (maxClassIdx === 0 || maxClassIdx === 2) {
           cardType = 'back';
-        } else if (maxClassIdx === 1) {
+        } else if (maxClassIdx === 1 || maxClassIdx === 3) {
           cardType = 'front';
-        } else {
+        } else if (maxClassIdx === 5) {
           cardType = 'print';
+        } else if (maxClassIdx === 4) {
+          // Skip "other" class
+          continue;
         }
         
         bestDetection = {

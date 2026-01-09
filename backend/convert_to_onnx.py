@@ -19,7 +19,7 @@ def convert_to_onnx():
         from ultralytics import YOLO
     
     # Paths
-    model_path = Path(__file__).parent / "models" / "best4.pt"
+    model_path = Path(__file__).parent / "models" / "best.pt"
     output_dir = Path(__file__).parent.parent / "public" / "models"
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -65,7 +65,7 @@ def convert_to_onnx():
         half=False,
     )
     
-    final_path_small = output_dir / "aadhaar_detector_small.onnx"
+    final_path_small = output_dir / "aadhaarDetector.onnx"
     shutil.move(export_path_small, final_path_small)
     
     print(f"✅ Small model exported!")

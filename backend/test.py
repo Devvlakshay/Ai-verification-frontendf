@@ -19,8 +19,8 @@ print(f"Model classes: {model.names}")
 # Step 2: Define Image Paths
 # ---------------------------
 # Replace these with your actual image paths
-FRONT_IMAGE_PATH = '/Users/lakshyaborasi/Desktop/Ai-verification-frontendf/public/uploads/front.jpg'  # Path to front image
-BACK_IMAGE_PATH = '/Users/lakshyaborasi/Desktop/Ai-verification-frontendf/public/uploads/back.jpg'    # Path to back image
+FRONT_IMAGE_PATH = '/Users/lakshyaborasi/Desktop/Ai-verification-frontendf/public/models/gibbrish.png'  # Path to front image
+BACK_IMAGE_PATH = '/Users/lakshyaborasi/Desktop/Ai-verification-frontendf/public/models/driving.jpg'    # Path to back image
 
 # Step 3: Inference Function
 # ---------------------------
